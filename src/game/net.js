@@ -72,6 +72,7 @@ export class NetClient {
       case PROTO.DESPAWN: this.emit('entityDespawn', { id: msg.id }); break;
       case PROTO.MOVE:    this.emit('entityMove', msg); break;
       case PROTO.CHAT:    this.emit('chat', msg); break;
+      case 'chat_settings': this.emit('chatSettings', msg); break;   // ГМ переключил каналы
       case PROTO.EMOTE:   this.emit('emote', msg); break;
       case 'notice':      this.emit('notice', msg); break;       // служебные сообщения/ГМ-консоль
       case 'announce':    this.emit('announce', msg); break;     // баннер от ГМ

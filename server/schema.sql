@@ -50,6 +50,34 @@ CREATE TABLE IF NOT EXISTS chat_log (
   KEY idx_world_time (world_id, ts)
 ) ENGINE=InnoDB;
 
+-- Личные сообщения (двусторонние whispers, хранятся построчно)
+CREATE TABLE IF NOT EXISTS whispers (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  world_id   VARCHAR(16)  NOT NULL,
+  from_name  VARCHAR(32)  NOT NULL,
+  to_name    VARCHAR(32)  NOT NULL,
+  text       VARCHAR(255) NOT NULL,
+  ts         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_pair (world_id, from_name, to_name, id),
+  KEY idx_to   (to_name, id)
+) ENGINE=InnoDB;
+
+-- Системная информация (рассылки ядра/ГМ: вход-выход, анонсы, события)
+CREATE TABLE IF NOT EXISTS system_log (
+  id        BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  world_id  VARCHAR(16)  NOT NULL,
+  kind      VARCHAR(16)  NOT NULL DEFAULT 'info',   -- info · announce · event · gm
+  text      VARCHAR(255) NOT NULL,
+  ts        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_world_time (world_id, ts)
+) ENGINE=InnoDB;
+
+-- Настройки чат-систем (раздел §3 в deploy.php; читаются ядром при старте)
+CREATE TABLE IF NOT EXISTS chat_settings (
+  k VARCHAR(48) PRIMARY KEY,
+  v VARCHAR(255) NOT NULL
+) ENGINE=InnoDB;
+
 -- Сеансы WS (кто сейчас в игре — для счётчика «онлайн»)
 CREATE TABLE IF NOT EXISTS sessions (
   account_id INT UNSIGNED PRIMARY KEY,

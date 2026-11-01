@@ -36,6 +36,16 @@ const CFG = {
   HEARTBEAT_MS:   Math.max(5000, parseInt(process.env.HEARTBEAT_MS || '30000', 10)),
   IDLE_TIMEOUT_MS:Math.max(10000, parseInt(process.env.IDLE_TIMEOUT_MS || '90000', 10)),
   SAVE_EVERY_S:   Math.max(5, parseInt(process.env.SAVE_EVERY_S || '30', 10)),
+  // --- настройки чат-систем (переопределяются таблицей chat_settings из БД) ---
+  CHAT_GLOBAL_ON: process.env.CHAT_GLOBAL_ON !== '0',
+  CHAT_LOCAL_ON:  process.env.CHAT_LOCAL_ON  !== '0',
+  CHAT_PARTY_ON:  process.env.CHAT_PARTY_ON  !== '0',
+  CHAT_WHISPER_ON:process.env.CHAT_WHISPER_ON!== '0',
+  CHAT_SYSTEM_ON: process.env.CHAT_SYSTEM_ON !== '0',
+  CHAT_GM_ON:     process.env.CHAT_GM_ON     !== '0',
+  WHISPER_RATE:   Math.max(0, parseInt(process.env.WHISPER_RATE_PER_S || '4', 10)),
+  SYS_JOIN_LEAVE: process.env.SYS_JOIN_LEAVE !== '0',
+  SYS_MAX_LEN:    Math.max(60, parseInt(process.env.SYS_MAX_LEN || '200', 10)),
   PUBLIC_MODE:    process.env.PUBLIC_MODE === '1',
   ALLOW_REG:      process.env.ALLOW_REG !== '0',
   LOG_LEVEL:      process.env.LOG_LEVEL || 'info',
@@ -51,6 +61,9 @@ const mem = {                                      // фолбэк-хранил�
   accounts: new Map(),      // email(lower) -> row
   characters: new Map(),    // `${accId}:${worldId}` -> row
   chat: [],                 // {world_id, author, channel, text, ts}
+  whispers: [],             // {world_id, from_name, to_name, text, ts}
+  system_log: [],           // {world_id, kind, text, ts}
+  chat_settings: {},        // ключ -> значение (фолбэк без БД)
   worlds: [
     { id: 'nwm-1', name: 'Первый Костёр', seed: 20261102, pop: 'высокая' },
     { id: 'nwm-2', name: 'Люминитовый Разлом', seed: 770211, pop: 'средняя' },
@@ -348,6 +361,40 @@ app.get('/api/worlds', async (_req, res) => {
 });
 
 // ---- персонажи (нужен токен аккаунта) ----
+// Чат-системы: настройки, история и личные сообщения через REST (связь БД↔игра)
+app.get('/api/chat/settings', (_req, res) => {
+  res.json({
+    channels: chatChannelsPublic(),
+    whisperRatePerSec: CFG.WHISPER_RATE, sysJoinLeave: CFG.SYS_JOIN_LEAVE,
+    chatRatePerSec: CFG.CHAT_RATE_PER_S, maxLen: 200, localRadius: CFG.LOCAL_RADIUS || 40,
+  });
+});
+app.post('/api/chat/settings', async (req, res) => {        // из deploy.php / ГМ-панели без рестарта
+  const allowed = ['CHAT_GLOBAL_ON','CHAT_LOCAL_ON','CHAT_PARTY_ON','CHAT_WHISPER_ON','CHAT_SYSTEM_ON','CHAT_GM_ON','WHISPER_RATE_PER_S','SYS_JOIN_LEAVE'];
+  const b = req.body || {};
+  for (const k of allowed) if (b[k] !== undefined) await saveChatSetting(k, String(b[k]));
+  log('[chat] настройки обновлены через API');
+  res.json({ ok: true, channels: chatChannelsPublic() });
+});
+app.get('/api/chat/history', authTok, async (req, res) => { // последние сообщения канала мира
+  const world = String(req.query.world || 'nwm-1').slice(0, 16);
+  const channel = String(req.query.channel || 'global').toLowerCase();
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || '30', 10)));
+  if (pool) {
+    try {
+      const rows = await q(`SELECT author, channel, text, ts FROM chat_log WHERE world_id=? AND channel=? ORDER BY id DESC LIMIT ${limit}`, [world, channel === 'whisper' ? 'global' : channel]);
+      return res.json((rows || []).reverse());
+    } catch (_) { return res.json([]); }
+  }
+  res.json(mem.chat.filter(c => c.world_id === world && c.channel === (channel === 'whisper' ? 'global' : channel)).slice(-limit));
+});
+app.get('/api/chat/whispers', authTok, async (req, res) => { // личная переписка игрока
+  const peer = String(req.query.with || '');
+  const meName = String(req.query.name || '');
+  if (!meName || !peer) return res.status(400).json({ error: 'Нужны name и with.' });
+  res.json(await whisperHistory(meName, peer, parseInt(req.query.limit || '50', 10)));
+});
+
 // простой токен: base64(email:id:hmac). Секрет генерируется при старте.
 // Секрет подписи токенов: берём из .env (TOKEN_SECRET), иначе стабильный
 // по умолчанию — токены переживают перезапуск сервера.
@@ -422,6 +469,109 @@ const online = new Map();                          // socket -> {name, cls, x, z
 const muted = new Map();                           // name(lower) -> expireTs
 let MOTD = 'Добро пожаловать в Эфирию. Свет — твоё оружие, тьма — твой враг.';
 
+// ================= ЧАТ-СИСТЕМЫ: мир / шёпот / система ======================
+// Каналы: global (мировой), local (рядом с говорящим), party (группа),
+// whisper (личные сообщения /w), system (системная информация), guild/gm.
+const CHAN_COLORS = { global: '#cfe3ff', local: '#9fd8a4', party: '#7ec8ff', whisper: '#e6a3ff', system: '#ffd97a', gm: '#ff8a8a' };
+const chanOn = (ch) => ({
+  global: CFG.CHAT_GLOBAL_ON, local: CFG.CHAT_LOCAL_ON, party: CFG.CHAT_PARTY_ON,
+  whisper: CFG.CHAT_WHISPER_ON, system: CFG.CHAT_SYSTEM_ON, gm: CFG.CHAT_GM_ON,
+}[ch] !== false);
+
+// загрузка настроек чата из БД (таблица chat_settings пишет deploy.php §3)
+async function loadChatSettings() {
+  const keys = ['CHAT_GLOBAL_ON','CHAT_LOCAL_ON','CHAT_PARTY_ON','CHAT_WHISPER_ON','CHAT_SYSTEM_ON','CHAT_GM_ON','WHISPER_RATE_PER_S','SYS_JOIN_LEAVE'];
+  if (pool) {
+    try {
+      await q(`CREATE TABLE IF NOT EXISTS chat_settings (k VARCHAR(48) PRIMARY KEY, v VARCHAR(255) NOT NULL)`);
+      const rows = await q('SELECT k, v FROM chat_settings');
+      for (const r of rows || []) {
+        const k = String(r.k), v = String(r.v);
+        if (!keys.includes(k)) continue;
+        if (k === 'WHISPER_RATE_PER_S') CFG.WHISPER_RATE = Math.max(0, parseInt(v, 10) || 0);
+        else CFG[k.replace('_PER_S', '')] = v !== '0';
+      }
+      log('[chat] настройки из БД загружены');
+    } catch (e) { warn('[chat] chat_settings недоступна:', e.message); }
+  } else {
+    for (const k of keys) if (mem.chat_settings[k] !== undefined) {
+      if (k === 'WHISPER_RATE_PER_S') CFG.WHISPER_RATE = Math.max(0, parseInt(mem.chat_settings[k], 10) || 0);
+      else CFG[k] = mem.chat_settings[k] !== '0';
+    }
+  }
+}
+async function saveChatSetting(k, v) {              // hot-update из REST/GM без рестарта
+  if (k === 'WHISPER_RATE_PER_S') CFG.WHISPER_RATE = Math.max(0, parseInt(v, 10) || 0);
+  else CFG[k] = String(v) !== '0';
+  if (pool) q('INSERT INTO chat_settings (k,v) VALUES (?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)', [k, String(v)]).catch(() => {});
+  else mem.chat_settings[k] = String(v);
+}
+
+// рассылка системной информации (+журнал в system_log)
+function sysMsg(worldId, text, kind = 'info', toSock = null) {
+  if (!CFG.CHAT_SYSTEM_ON && !toSock) return;
+  const t = String(text).slice(0, CFG.SYS_MAX_LEN);
+  const obj = { type: 'chat', author: 'СИСТЕМА', text: t, channel: 'system', color: CHAN_COLORS.system, kind };
+  if (toSock) wsSend(toSock, obj);
+  else for (const [sock, o] of online) if (!worldId || o.worldId === worldId) wsSend(sock, obj);
+  if (pool) q('INSERT INTO system_log (world_id, kind, text) VALUES (?,?,?)', [worldId || '*', kind, t]).catch(() => {});
+  else mem.system_log.push({ world_id: worldId || '*', kind, text: t, ts: new Date() });
+}
+
+// доставка сообщения игроку по имени (в тот же мир); возвращает true если найден
+function sendToPlayer(name, obj) {
+  const n = String(name || '').toLowerCase();
+  let hit = false;
+  for (const [sock, o] of online) if (o.name.toLowerCase() === n) { wsSend(sock, obj); hit = true; }
+  return hit;
+}
+
+// личные сообщения: /w <игрок> <текст> · /whisper · /лс · /ш
+function handleWhisper(ws, me, raw) {
+  if (!CFG.CHAT_WHISPER_ON) { wsSend(ws, { type: 'notice', text: 'Личные сообщения отключены на сервере.' }); return true; }
+  const sp = String(raw).trim().split(/\s+/);
+  const to = sp.shift();
+  const text = sp.join(' ');
+  if (!to || !text) { wsSend(ws, { type: 'notice', text: 'Формат: /w Имя текст (или /лс Имя текст).' }); return true; }
+  if (to.toLowerCase() === me.name.toLowerCase()) { wsSend(ws, { type: 'notice', text: 'Себе писать не стоит.' }); return true; }
+  if (!sendToPlayer(to, { type: 'chat', author: me.name, text: text.slice(0, 200), channel: 'whisper', color: CHAN_COLORS.whisper, whisper: true, dir: 'in' })) {
+    wsSend(ws, { type: 'notice', text: `Игрок «${to}» сейчас не в сети.` }); return true;
+  }
+  wsSend(ws, { type: 'chat', author: me.name, text: text.slice(0, 200), channel: 'whisper', color: CHAN_COLORS.whisper, whisper: true, dir: 'out', target: to });
+  if (pool) q('INSERT INTO whispers (world_id, from_name, to_name, text) VALUES (?,?,?,?)', [me.worldId, me.name, to, text.slice(0, 200)]).catch(() => {});
+  else mem.whispers.push({ world_id: me.worldId, from_name: me.name, to_name: to, text: text.slice(0, 200), ts: new Date() });
+  return true;
+}
+
+// история переписки (REST + /gm logs): последние N сообщений с игроком
+async function whisperHistory(meName, peer, limit = 30) {
+  const lim = Math.max(1, Math.min(200, limit | 0));
+  if (pool) {
+    try {
+      const rows = await q(`SELECT from_name, to_name, text, ts FROM whispers
+        WHERE (from_name=? AND to_name=?) OR (from_name=? AND to_name=?) ORDER BY id DESC LIMIT ${lim}`,
+        [meName, peer, peer, meName]);
+      return (rows || []).reverse();
+    } catch (_) { return []; }
+  }
+  const m = meName.toLowerCase(), p = String(peer).toLowerCase();
+  return mem.whispers.filter(w => (w.from_name.toLowerCase() === m && w.to_name.toLowerCase() === p) ||
+                                  (w.from_name.toLowerCase() === p && w.to_name.toLowerCase() === m)).slice(-lim);
+}
+
+// публичное описание каналов (отправляется клиенту в welcome)
+function chatChannelsPublic() {
+  const list = [
+    { id: 'global',  name: 'Мир',      color: CHAN_COLORS.global },
+    { id: 'local',   name: 'Окрестности', color: CHAN_COLORS.local },
+    { id: 'party',   name: 'Группа',   color: CHAN_COLORS.party },
+    { id: 'whisper', name: 'Личное',   color: CHAN_COLORS.whisper },
+    { id: 'system',  name: 'Система',  color: CHAN_COLORS.system },
+    { id: 'gm',      name: 'ГМ',       color: CHAN_COLORS.gm },
+  ];
+  return list.filter(c => chanOn(c.id));
+}
+
 // ---------------------- анти-флуд / рейт-лимиты ---------------------------
 class TokenBucket {
   constructor(ratePerSec, burst) { this.rate = ratePerSec; this.cap = Math.max(1, burst); this.tokens = this.cap; this.t = Date.now(); }
@@ -457,7 +607,7 @@ wss.on('connection', (ws) => {
     any:  new TokenBucket(80, 160),                  // общий лимит пакетов
   };
   ws.__lastMsg = Date.now();
-  ws.on('message', (buf) => {
+  ws.on('message', async (buf) => {
     ws.__lastMsg = Date.now();
     if (!buckets.any.take()) return;                 // грубый флуд — тихо режем
     let m; try { m = JSON.parse(buf.toString()); } catch (_) { return; }
@@ -475,7 +625,8 @@ wss.on('connection', (ws) => {
           if (sock === ws) continue;
           wsSend(ws, { type: 'spawn', entity: { id: sock.__id, kind: 'player', name: o.name, cls: o.cls, color: o.gm ? '#ff5f5f' : '#d9a441', level: o.level, gm: o.gm, x: o.x, z: o.z } });
         }
-        wsSend(ws, { type: 'welcome', id: ws.__id, motd: MOTD, gm: me.gm, gmTitle: me.gm ? (GM_LEVELS[me.gm] || 'ГМ') : null, perms: me.gm ? gmPermsForLevel(me.gm) : [] });
+        wsSend(ws, { type: 'welcome', id: ws.__id, motd: MOTD, gm: me.gm, gmTitle: me.gm ? (GM_LEVELS[me.gm] || 'ГМ') : null, perms: me.gm ? gmPermsForLevel(me.gm) : [], channels: chatChannelsPublic() });
+        if (CFG.SYS_JOIN_LEAVE) sysMsg(me.worldId, `${me.name} входит в мир. Свети осторожно.`, 'event');
         break;
       }
       case 'move': {
@@ -488,15 +639,40 @@ wss.on('connection', (ws) => {
       case 'chat': {
         if (!me) return;
         if (!buckets.chat.take()) { wsSend(ws, { type: 'notice', text: 'Слишком часто — подожди мгновение.' }); return; }
-        const text = String(m.text || '').slice(0, 200);
+        let text = String(m.text || '').slice(0, 200);
         if (!text) return;
         // ГМ-команды: /gm <cmd> ... (полномочия проверяются по уровню)
         if (/^\/?gm[\s:]/i.test(text.trim())) { handleGm(ws, me, text.trim().replace(/^\/?gm[\s:]+/i, '')); break; }
+        // личные сообщения: /w · /whisper · /лс · /ш (+ история /wh history)
+        let wm = text.match(/^\/(?:w|whisper|лс|ш)\s+(.*)$/i);
+        if (wm) { handleWhisper(ws, me, wm[1]); break; }
+        if (/^\/(?:wh|лсих)\s+(\S+)\s*$/.test(text)) {   // /wh <игрок> — история переписки
+          const peer = text.match(/^\/(?:wh|лсих)\s+(\S+)\s*$/i)[1];
+          const h = await whisperHistory(me.name, peer, 20);
+          if (!h.length) wsSend(ws, { type: 'notice', text: `Переписки с «${peer}» нет.` });
+          else for (const r of h.slice(-8)) wsSend(ws, { type: 'chat', author: r.from_name, text: r.text, channel: 'whisper', color: CHAN_COLORS.whisper, whisper: true, dir: r.from_name.toLowerCase() === me.name.toLowerCase() ? 'out' : 'in', target: peer });
+          break;
+        }
         const mu = muted.get(me.name.toLowerCase());
         if (mu && mu > Date.now()) { wsSend(ws, { type: 'notice', text: `Вы заглушены до ${new Date(mu).toLocaleTimeString('ru-RU')} (ГМ-модерация).` }); break; }
-        broadcast(null, { type: 'chat', author: me.name, text, channel: m.channel || 'global', color: me.gm ? '#ff8a8a' : '#cfe3ff', gm: !!me.gm });
-        if (pool) q('INSERT INTO chat_log (world_id, author, channel, text) VALUES (?,?,?,?)', [me.worldId, me.name, m.channel || 'global', text]).catch(() => {});
-        else mem.chat.push({ world_id: me.worldId, author: me.name, channel: m.channel || 'global', text, ts: new Date() });
+        // выбор канала: из пакета или по префиксу /channel
+        let ch = String(m.channel || 'global').toLowerCase();
+        const cm = text.match(/^\/(global|world|local|party|group|system|gm|guild)\s+(.*)$/i);
+        if (cm) { ch = cm[1].toLowerCase(); text = cm[2]; }
+        if (ch === 'world') ch = 'global';
+        if (ch === 'group') ch = 'party';
+        if (!chanOn(ch)) { wsSend(ws, { type: 'notice', text: `Канал «${ch}» отключён на сервере.` }); break; }
+        const out = { type: 'chat', author: me.name, text, channel: ch, color: me.gm ? CHAN_COLORS.gm : (CHAN_COLORS[ch] || CHAN_COLORS.global), gm: !!me.gm };
+        // доставка по каналу
+        if (ch === 'local') {          // только те, кто рядом с говорящим
+          for (const [sock, o] of online) {
+            if (sock === ws || o.worldId !== me.worldId) continue;
+            if (Math.hypot(o.x - me.x, o.z - me.z) <= (CFG.LOCAL_RADIUS || 40)) wsSend(sock, out);
+          }
+        } else broadcast(null, out, true);
+        wsSend(ws, out);               // эхо отправителю (клиент в live-режиме сам не дублирует)
+        if (pool) q('INSERT INTO chat_log (world_id, author, channel, text) VALUES (?,?,?,?)', [me.worldId, me.name, ch, text]).catch(() => {});
+        else mem.chat.push({ world_id: me.worldId, author: me.name, channel: ch, text, ts: new Date() });
         break;
       }
       case 'emote': {
@@ -509,7 +685,10 @@ wss.on('connection', (ws) => {
     }
   });
   ws.on('close', () => {
-    if (me) broadcast(null, { type: 'despawn', id: ws.__id });
+    if (me) {
+      broadcast(null, { type: 'despawn', id: ws.__id });
+      if (CFG.SYS_JOIN_LEAVE) sysMsg(me.worldId, `${me.name} покидает мир.`, 'event');
+    }
     online.delete(ws);
   });
 });
@@ -534,6 +713,7 @@ const GM_HELP = [
   'tp <игрок> [x z] · kick <игрок> [причина] · mute <игрок> <сек> · unmute <игрок>',
   'xp <игрок> <кол-во> · world <мир> <текст> · ban <email> <мин> [причина] · unban <email>',
   'add_gm <email> <уровень 1|2|3> · del_gm <email> · gmlist · help',
+  'чат: wmsg <игрок> <текст> — системное ЛС · sysmsg <текст> — инфо всем в мире · channels · chat <канал> вкл|выкл',
 ];
 async function handleGm(ws, me, raw) {
   const say = (t) => wsSend(ws, { type: 'notice', text: t });
@@ -566,7 +746,7 @@ async function handleGm(ws, me, raw) {
       const text = sp.join(' ').slice(0, 200);
       if (!text) return say('Пустой текст.');
       if (cmd === 'motd') { MOTD = text; say('MOTD обновлён — будет показан при следующем входе.'); }
-      else broadcast(null, { type: 'announce', text, channel: 'system' });
+      else { broadcast(null, { type: 'announce', text, channel: 'system' }); for (const w of new Set([...online.values()].map(o => o.worldId))) sysMsg(w, `ГМ-объявление: ${text}`, 'gm'); }
       audit(me.email, cmd, text, 'ok'); break;
     }
     case 'tp': {
@@ -637,6 +817,35 @@ async function handleGm(ws, me, raw) {
       const g = await listGm();
       say(g.length ? g.map(x => `${x.email} (${x.title})`).join(', ') : 'ГМ-записей нет.'); break;
     }
+    // ---- чат-системы: ГМ-управление каналами и рассылками ----
+    case 'wmsg': {                                   // служебное ЛС от имени системы
+      if (!needPerm('world_msg')) break;
+      const to = sp.shift(); const text = sp.join(' ');
+      if (!to || !text) return say('Формат: /gm wmsg <игрок> <текст>');
+      if (!sendToPlayer(to, { type: 'chat', author: 'СИСТЕМА', text, channel: 'system', color: CHAN_COLORS.system, whisperish: true })) return say('Игрок не в сети.');
+      say(`Системное сообщение доставлено: ${to}.`); audit(me.email, 'wmsg', `${to} ${text}`, 'ok'); break;
+    }
+    case 'sysmsg': {                                 // системная информация всем в мире ГМ
+      if (!needPerm('world_msg')) break;
+      const text = sp.join(' ');
+      if (!text) return say('Пустой текст.');
+      sysMsg(me.worldId, `ВЕДОМОСТЬ: ${text}`, 'gm');
+      say(`Системная информация разослана в мир ${me.worldId}.`); audit(me.email, 'sysmsg', text, 'ok'); break;
+    }
+    case 'channels': {
+      say(`Каналы: ${chatChannelsPublic().map(c => c.name).join(', ')} · ЛС-рейт: ${CFG.WHISPER_RATE}/с · вход/выход: ${CFG.SYS_JOIN_LEAVE ? 'вкл' : 'выкл'}`); break;
+    }
+    case 'chat': {                                   // /gm chat <global|local|party|whisper|system|gm> on|off
+      if (!needPerm('motd')) break;
+      const chMap = { global: 'CHAT_GLOBAL_ON', local: 'CHAT_LOCAL_ON', party: 'CHAT_PARTY_ON', whisper: 'CHAT_WHISPER_ON', system: 'CHAT_SYSTEM_ON', gm: 'CHAT_GM_ON' };
+      const key = chMap[String(sp[0] || '').toLowerCase()];
+      const on = /^(1|on|вкл|включить|да)$/i.test(sp[1] || '');
+      const off = /^(0|off|выкл|выключить|нет)$/i.test(sp[1] || '');
+      if (!key || (!on && !off)) return say('Формат: /gm chat <global|local|party|whisper|system|gm> <вкл|выкл>');
+      await saveChatSetting(key, on ? '1' : '0');
+      broadcast(null, { type: 'chat_settings', channels: chatChannelsPublic() });   // клиенты обновят вкладки
+      say(`Канал «${sp[0]}» ${on ? 'включён' : 'отключён'} (сохранено в БД).`); audit(me.email, 'chat', sp.join(' '), 'ok'); break;
+    }
     case 'shutdown': {
       if (!needPerm('shutdown')) break;
       const s = Math.max(3, parseInt(sp[0] || '10', 10));
@@ -681,6 +890,7 @@ async function ensureAutoGm() {
   await initDb();
   await loadGmTable();
   await ensureAutoGm();
+  await loadChatSettings();
   server.listen(PORT, BIND_ADDR, () => {
     console.log('============================================================');
     console.log(`  Ночь Военного Ремесла — сервер: http://localhost:${PORT}`);

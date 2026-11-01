@@ -161,8 +161,10 @@
   <div id="quest-tracker"><div class="qt-title">Задания</div><div id="qt-list"></div></div>
 
   <div id="chatbox">
+    <div id="chat-tabs"></div>
     <div id="chat-log"></div>
-    <form id="chat-form"><input id="chat-input" maxlength="120" placeholder="Чат: Enter — открыть, /поклон — эмоции"></form>
+    <div id="chat-whisper-target" class="hidden"><span id="cwt-name"></span><button id="cwt-clear" title="Закрыть переписку">✕</button></div>
+    <form id="chat-form"><input id="chat-input" maxlength="160" placeholder="Чат: Enter — открыть · /w Имя — личное · /поклон — эмоции"></form>
   </div>
 
   <div id="actionbar">
