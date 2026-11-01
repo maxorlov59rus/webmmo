@@ -4,11 +4,12 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { buildWorld, heightAt, resolveCollision } from './world.js';
-import { buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimController, makeLabel, updateLabelTexture } from './models.js';
+import { buildHumanoid, buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimController, makeLabel, updateLabelTexture } from './models.js';
 import { CombatFX, rollPlayerDamage, rollMobDamage } from './combat.js';
 import { NetClient } from './net.js';
 import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, countItem, equip, unequip, useConsumable, knownAbilities, serialize, deserialize, loadAccount, saveAccount } from './character.js';
-import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT } from '../data/consts.js';
+import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT, LOCATIONS, LOCATION_KEYS, locationById, locationAt, locationsForWorld } from '../data/consts.js';
+import { appearanceToMeshOpts } from '../data/appearance.js';
 import { UI } from '../ui/hud.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -59,6 +60,7 @@ export class Game {
     return this._boot(savedChar.name, savedChar.classId, savedChar, opts);
   }
   async _boot(charName, classId, restored, opts = {}) {
+    this.mobDensity = 1;
     this.accountEmail = opts.accountEmail || null;
     const worldDef = WORLDS.find(w => w.id === (opts.worldId || (restored && restored.world)));
     this.worldId = worldDef ? worldDef.id : WORLDS[0].id;
@@ -77,10 +79,20 @@ export class Game {
     this.ui = new UI(this);
     window.__unequipSlot = (slot) => { unequip(this.char, slot); this.ui.renderInventory(); };
 
-    // месть игрока в мире
+    // месть игрока в мире: сохранённая позиция или точка возрождения заставы
     const sp = this.world.spawnPoint;
-    this.char.pos = new THREE.Vector3(sp.x, heightAt(sp.x, sp.z, this.seed), sp.z);
-    this.playerParts = buildPlayerMesh(classId, CLASSES[classId].color);
+    const savedPos = this.char.pos && Math.abs(this.char.pos.x) <= 70 && Math.abs(this.char.pos.z) <= 70 ? this.char.pos : sp;
+    this.char.pos = new THREE.Vector3(savedPos.x, heightAt(savedPos.x, savedPos.z, this.seed), savedPos.z);
+    const meshOpts = appearanceToMeshOpts(
+      this.char.appearance, CLASSES[classId].color,
+      classId === 'mage' ? 'staff' : classId === 'scout' ? 'spear' : 'sword',
+      this.char.faction);
+    this.playerParts = buildHumanoid(meshOpts);
+    // подсветка класса под ногами (как у旧 buildPlayerMesh)
+    const clsRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 24),
+      new THREE.MeshBasicMaterial({ color: parseInt(CLASSES[classId].color.slice(1), 16), transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
+    clsRing.rotation.x = -Math.PI / 2; clsRing.position.y = 0.02;
+    this.playerParts.root.add(clsRing);
     this.playerAnim = new AnimController(this.playerParts);
     this.playerParts.root.position.copy(this.char.pos);
     this.scene.add(this.playerParts.root);
@@ -88,27 +100,37 @@ export class Game {
     this.playerLabel.position.y = 2.5;
     this.playerParts.root.add(this.playerLabel);
 
-    // NPC
-    for (const npc of Object.values(NPCS)) {
-      const parts = buildNpcMesh(npc);
-      const y = heightAt(npc.x, npc.z, this.seed);
-      parts.root.position.set(npc.x, y, npc.z);
-      parts.root.rotation.y = Math.atan2(-npc.x, -npc.z);
-      const anim = new AnimController(parts);
-      const label = makeLabel(npc.name, npc.role.split('·')[0].trim(), '#ffe9b8');
-      label.position.y = 2.6; parts.root.add(label);
-      // маркер задания (! или ?)
-      const hasQ = (npc.quests || []).length > 0;
-      if (hasQ) {
-        const mk = makeLabel('!', '', '#ffd24a');
-        mk.position.y = 3.4; mk.scale.set(1.2, 0.4, 1);
-        parts.root.add(mk);
+    // NPC — только жители локаций этого мира
+    this.npcDefs = [];
+    for (const loc of locationsForWorld(this.worldId)) {
+      for (const nid of loc.npcs || []) {
+        const npc = NPCS[nid];
+        if (!npc || this.npcDefs.includes(npc)) continue;
+        this.npcDefs.push(npc);
+        const L = LOCATIONS[loc.id];
+        const bx = L.anchor[0] * 10, bz = L.anchor[1] * 10;
+        npc.x = bx + (npc.offset?.[0] || 0);
+        npc.z = bz + (npc.offset?.[1] || 0);
+        const parts = buildNpcMesh(npc);
+        const y = heightAt(npc.x, npc.z, this.seed);
+        parts.root.position.set(npc.x, y, npc.z);
+        parts.root.rotation.y = Math.atan2(-npc.x, -npc.z);
+        const anim = new AnimController(parts);
+        const label = makeLabel(npc.name, npc.role.split('·')[0].trim(), '#ffe9b8');
+        label.position.y = 2.6; parts.root.add(label);
+        // маркер задания (! или ?)
+        const hasQ = (npc.quests || []).length > 0;
+        if (hasQ) {
+          const mk = makeLabel('!', '', '#ffd24a');
+          mk.position.y = 3.4; mk.scale.set(1.2, 0.4, 1);
+          parts.root.add(mk);
+        }
+        this.scene.add(parts.root);
+        this.npcs.push({ def: npc, parts, anim, label });
       }
-      this.scene.add(parts.root);
-      this.npcs.push({ def: npc, parts, anim, label });
     }
 
-    // Мобы
+    // Мобы — по локациям мира
     this.spawnInitialMobs();
 
     // Камера
@@ -141,12 +163,31 @@ export class Game {
   }
 
   spawnInitialMobs() {
-    // Волки вокруг заставы
-    for (let i = 0; i < 10; i++) {
-      const a = rand(0, Math.PI * 2), r = rand(20, 40);
-      this.spawnMob('wolf', Math.cos(a) * r, Math.sin(a) * r);
+    // Спавн по локациям мира: spawns: [[typeId, count, respawnBonus], ...]
+    const placed = [];
+    for (const loc of locationsForWorld(this.worldId)) {
+      if (!loc.spawns || !loc.spawns.length) continue;
+      const cx = loc.anchor[0] * 10, cz = loc.anchor[1] * 10;
+      const rad = Math.max(6, (loc.radius || 20) * 0.55);
+      for (const [typeId, count, respawnTweak] of loc.spawns) {
+        if (!MOBS[typeId]) continue;
+        const n = Math.max(1, Math.round((count || 1) * this.mobDensity));
+        for (let i = 0; i < n; i++) {
+          const a = rand(0, Math.PI * 2), r = rand(loc.safe ? 4 : 6, rad);
+          const m = this.spawnMob(typeId, cx + Math.cos(a) * r, cz + Math.sin(a) * r);
+          if (respawnTweak) m.respawnDelay = Math.max(8, respawnTweak);
+          placed.push(m);
+        }
+      }
     }
-    // Скелеты у кострищ
+    // Страховая «популяция у заставы», если локаций со спавном нет
+    if (!placed.length) {
+      for (let i = 0; i < 10; i++) {
+        const a = rand(0, Math.PI * 2), r = rand(20, 40);
+        this.spawnMob('wolf', Math.cos(a) * r, Math.sin(a) * r);
+      }
+    }
+    // Скелеты у кострищ — классика Ночной Заставы
     for (const bf of this.world.bonfires) {
       const n = 2 + Math.floor(rand(0, 2));
       for (let i = 0; i < n; i++) {
@@ -154,14 +195,11 @@ export class Game {
         this.spawnMob('skeleton', px, pz);
       }
     }
-    // Тени в лесу
-    for (let i = 0; i < 6; i++) {
-      const a = rand(0, Math.PI * 2), r = rand(30, 55);
-      this.spawnMob('shade', Math.cos(a) * r, Math.sin(a) * r);
-    }
-    // Босс — Надзиратель Ночи у дальнего кургана
-    this.bossHome = { x: -42, z: -38 };
-    this.spawnMob('overseer', this.bossHome.x, this.bossHome.z);
+    // Босс локации Пепельного Поля (или дежильная точка, если её нет в мире)
+    const ash = locationById('ashfields');
+    const bossHome = ash ? { x: ash.anchor[0] * 10, z: ash.anchor[1] * 10 } : { x: -42, z: -38 };
+    this.bossHome = bossHome;
+    this.spawnMob('overseer', bossHome.x, bossHome.z);
   }
 
   spawnMob(typeId, x, z) {
@@ -526,7 +564,7 @@ export class Game {
   killMob(m) {
     m.dead = true; m.hp = 0;
     if (m.anim) m.anim.kill(); else m.mesh.userData.dying = true;
-    m.respawnT = this.time + m.def.respawn;
+    m.respawnT = this.time + (m.respawnDelay || m.def.respawn);
     this.fx.burst(m.pos, m.isBoss ? 0x8a4fd0 : 0x88aaff, 20, 4, 0.5, 0.9);
     // опыт/золото
     const xp = Math.max(1, Math.round(m.def.xp * THREE.MathUtils.clamp(1 - 0.12 * (this.char.level - m.level), 0.3, 1.2)));

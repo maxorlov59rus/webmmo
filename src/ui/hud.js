@@ -4,7 +4,7 @@
 //  сверх этого — фракция и архетип из auth-потока.
 // ============================================================
 
-import { ITEMS, CLASSES, RARITY_NAMES, RARITY_COLORS, STATS, STAT_KEYS, FACTIONS, ARCHETYPES } from '../data/consts.js';
+import { ITEMS, CLASSES, RARITY_NAMES, RARITY_COLORS, STATS, STAT_KEYS, FACTIONS, ARCHETYPES, locationAt } from '../data/consts.js';
 import { xpForLevel } from '../game/character.js';
 
 const $ = (id) => document.getElementById(id);
@@ -131,6 +131,17 @@ export class UI {
     $('hud-faction').textContent = fac ? `· ${fac.icon} ${fac.short}${arch ? ' · ' + arch.name : ''}` : '';
     $('portrait').textContent = (c.name || '?')[0].toUpperCase();
     $('portrait').style.borderColor = CLASSES[c.classId].color;
+
+    // локация и время суток
+    const p = g.playerParts ? g.playerParts.root.position : null;
+    const zone = p ? locationAt(p.x, p.z) : null;
+    const zt = $('zone-time');
+    if (zt) {
+      const phase = g.dayNight === 'dawn' ? 'Рассвет' : 'Ночь';
+      zt.textContent = (zone ? zone.name : 'Эфирия') + ' · ' + phase;
+    }
+    const mm = document.querySelector('.mm-label');
+    if (mm && zone) mm.textContent = zone.name;
 
     // цель
     const t = g.target;

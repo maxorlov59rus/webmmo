@@ -151,11 +151,102 @@ export function rolesForFaction(fid) {
 
 // --- Миры (серверы) ---
 export const WORLDS = [
-  { id: 'nwm-1', name: 'Первый Костёр', pop: 'высокая', ping: 24, desc: 'Старейшая заставу Эфирии. Полный лут-таблица, PvP-флаг включён после 15 уровня.', seed: 20261102 },
+  { id: 'nwm-1', name: 'Первый Костёр', pop: 'высокая', ping: 24, desc: 'Старейшая застава Эфирии. Полный лут-таблица, PvP-флаг включён после 15 уровня.', seed: 20261102 },
   { id: 'nwm-2', name: 'Люминитовый Разлом', pop: 'средняя', ping: 38, desc: 'Шахты Гильдии: вдвое больше руды и светокамня, но химеры агрессивнее.', seed: 770211 },
   { id: 'nwm-3', name: 'Пепел Аэрии', pop: 'низкая', ping: 51, desc: 'Руины летающего города Синдиката. Подземелья, контрабанда, тёмные рынки.', seed: 411007 },
   { id: 'nwm-4', name: 'Сумеречная Роща', pop: 'высокая', ping: 31, desc: 'Леса Детей Сумерек: ручные химеры, редкие травы, ночные туманы.', seed: 902113 },
 ];
+
+// ============================================================
+//  ЛОКАЦИИ ЭФИРИИ — привязаны к миру; центр каждой локации
+//  смещается от спавна игрока на anchor*10 метров.
+// ============================================================
+export const LOCATIONS = {
+  outpost: {
+    id: 'outpost', name: 'Ночная Застава', world: 'nwm-1', icon: '⚑', color: '#7fa8d9',
+    levelRange: [1, 12], safe: true, anchor: [0, 0], radius: 16,
+    desc: 'Круглый палисад из обожжённых свай вокруг геотермальной трещины. Здесь горит единственный на мили вокруг горн, торгует ведьма и считает дозоры сержант. Свет факелов — единственная граница между ремеслом и кормом для химер.',
+    npcs: ['dormir', 'ilva', 'serj', 'gilda', 'bruno'],
+    spawns: [],
+    features: ['Кузница Дормира', 'Шатёр травницы', 'Досмотровая вышка', 'Костёр часовой'],
+  },
+  hollow: {
+    id: 'hollow', name: 'Выгоршая Пустошь', world: 'nwm-1', icon: '☄', color: '#e8a33d',
+    levelRange: [2, 6], safe: false, anchor: [-3.2, -2.6], radius: 26,
+    desc: 'Здесь падал когда-то «луч» — так говорят старые. Земля спеклась в стекло, воздух звенит от окалины, а волки приходят сюда греться об ещё тёплые прожилки люминита. Порождает руду на поверхности: копай где угодно.',
+    npcs: [],
+    spawns: [['wolf', 10, 9], ['wraith', 3, 14]],
+    features: ['Стеклянные воронки', 'Рассевшийся курган', 'Поверхностная руда'],
+  },
+  barrow: {
+    id: 'barrow', name: 'Курганы Первых Дозоров', world: 'nwm-1', icon: '☠', color: '#b48ce8',
+    levelRange: [4, 9], safe: false, anchor: [2.6, -3.4], radius: 24,
+    desc: 'Пять курганов тех, кто держал заставу до нас. Ночью они встают — неупокоенные часовые всё ещё ждут смены. У погасших кострищ их можно взять по одному; у большого костра — только бегом.',
+    npcs: [],
+    spawns: [['skeleton', 9, 10], ['bone_colossus', 1, 18]],
+    features: ['Кострища неупокоенных', 'Большой курган', 'Лунный камень в насыпях'],
+  },
+  pinewood: {
+    id: 'pinewood', name: 'Сумеречный Бор', world: 'nwm-1', icon: '🌙', color: '#6fcf97',
+    levelRange: [6, 12], safe: false, anchor: [3.4, 3.2], radius: 30,
+    desc: 'Лес, который научился дышать во тьме. Дети Сумерек ставят тут тотемы и кличут ручных химер; дикие тени скользят между стволов и гасят факелы одним касанием. Чем глубже чаща — тем меньше видно и тем жирнее добыча.',
+    npcs: ['maera'],
+    spawns: [['shade', 8, 12], ['chimera_cub', 4, 15]],
+    features: ['Тотемы сумерека', 'Гнездовья теней', 'Травы Детей Сумерек'],
+  },
+  minecamp: {
+    id: 'minecamp', name: 'Разрытая Шахта', world: 'nwm-2', icon: '⛏', color: '#ff8a4a',
+    levelRange: [3, 10], safe: false, anchor: [-3.0, 2.8], radius: 26,
+    desc: 'Горняцкий лагерь Гильдии Золотого Горна: паровые подъёмники стонут всю ночь, люминит светится из-под ног. Гном-прораб Бруно сдаёт задания на расчистку забоев — и на то, что живёт в этих забоях.',
+    npcs: ['bruno'],
+    spawns: [['golem_lum', 5, 13], ['skeleton', 6, 11], ['wolf', 4, 9]],
+    features: ['Забой №4', 'Люминитовые жилы', 'Паровой подъёмник'],
+  },
+  aeriadocks: {
+    id: 'aeriadocks', name: 'Причалы Аэрии', world: 'nwm-3', icon: '⚓', color: '#9b7fd4',
+    levelRange: [5, 14], safe: false, anchor: [2.8, 3.4], radius: 28,
+    desc: 'Пришвартованные обломки летающего города, ставшие базаром Теневого Синдиката. Контрабандный свет продаётся фонарь за фонарём, мейстерица Мэйра торгует ядами и слухами. Плати — и тьма станет товарной категорией.',
+    npcs: ['maera'],
+    spawns: [['wraith', 7, 12], ['shade', 5, 13], ['overseer', 1, 20]],
+    features: ['Тёмный рынок', 'Мачты-краны', 'Склады люмен-фонарей'],
+  },
+  grove: {
+    id: 'grove', name: 'Роща Шепчущих Кострей', world: 'nwm-4', icon: '🍂', color: '#6fcf97',
+    levelRange: [4, 13], safe: true, anchor: [-2.6, -3.2], radius: 26,
+    desc: 'Стоянка Детей Сумерек: костры горят зелёным, ручные химеры спят на лавах, как собаки. Здесь учат слушать тьму вместо того чтобы жечь. Чужакам разрешено стоять у огня — и торговать.',
+    npcs: ['maera', 'ilva'],
+    spawns: [['chimera_cub', 6, 10], ['shade', 4, 15]],
+    features: ['Зелёные костры', 'Вольеры химер', 'Лунные травы'],
+  },
+  ashfields: {
+    id: 'ashfields', name: 'Пепельное Поле', world: null, icon: '✥', color: '#ffd76a',
+    levelRange: [8, 15], safe: false, anchor: [3.6, -3.6], radius: 32,
+    desc: 'Поле последнего боя Ордена Неугасимого Света: зола хранит тепло триста лет. Надзиратель Ночи бродит здесь, потому что жрёт то, что боится света, — а другого вокруг ничего нет. Идти следует толпой или не идти вовсе.',
+    npcs: [],
+    spawns: [['overseer', 1, 18], ['wraith', 6, 13], ['golem_lum', 3, 16]],
+    features: ['Чёрный монолит', 'Зола святого пожара', 'Лежбище Надзирателя'],
+  },
+};
+export const LOCATION_KEYS = Object.keys(LOCATIONS);
+export function locationsForWorld(worldId) {
+  // world: null — локация доступна на всех мирах (общие охотничьи угодья)
+  return LOCATION_KEYS
+    .filter(k => LOCATIONS[k].world === worldId || LOCATIONS[k].world === null)
+    .map(k => LOCATIONS[k]);
+}
+export function locationById(id) { return LOCATIONS[id] || null; }
+
+// Ближайшая локация к точке карты (для HUD «вы здесь»)
+export function locationAt(x, z) {
+  let best = null, bestD = Infinity;
+  for (const k of LOCATION_KEYS) {
+    const L = LOCATIONS[k];
+    const cx = L.anchor[0] * 10, cz = L.anchor[1] * 10;
+    const d = Math.hypot(x - cx, z - cz);
+    if (d < bestD) { bestD = d; best = L; }
+  }
+  return best;
+}
 
 // --- Свойства персонажа -----------------------------------------------------
 export const STATS = {
@@ -221,11 +312,26 @@ export const ITEMS = {
   sentinel_charm:  { id: 'sentinel_charm', name: 'Оберег часовой', slot: 'trinket', rarity: 3, mods: { ward: 5, hp: 30 } },
   moonsignet:      { id: 'moonsignet', name: 'Перстень Ночной Заставы', slot: 'trinket', rarity: 4, mods: { might: 2, ward: 2, arcane: 2, agility: 2, wit: 2 }, lore: 'Печать командира заставы. Все пять свойств — как пять дозоров ночи.' },
 
+  // Новое оружие и броня (крафт из трофеев химер и Ордена)
+  chimera_fang_dagger: { id: 'chimera_fang_dagger', name: 'Клык-стилет химеры', slot: 'weapon', rarity: 3, dmg: [9, 15], speed: 1.25, mods: { agility: 3, crit: 8 }, lore: 'Тотемный клык, заострённый до предела. Яд в канале ещё живой.' },
+  ashen_plate:   { id: 'ashen_plate', name: 'Пепельные латы', slot: 'body', rarity: 4, armor: [5, 9], mods: { ward: 6, arcane: 3, hp: 30 }, lore: 'Сняты с инквизитора. Пахнут гарью и ересью одновременно.' },
+  lumlantern:    { id: 'lumlantern', name: 'Люмен-фонарь', slot: 'trinket', rarity: 3, mods: { wit: 4, light: 8 }, lore: 'Контрабандный свет Синдиката. Тьма делает вид, что не обижается.' },
+
   // Расходники
   health_potion:   { id: 'health_potion', name: 'Зелье лечения', slot: 'none', stack: true, use: { type: 'heal', value: 60 } },
   mana_potion:     { id: 'mana_potion', name: 'Зелье маны', slot: 'none', stack: true, use: { type: 'mana', value: 50 } },
+  poison_vial:     { id: 'poison_vial', name: 'Флакон яда глубин', slot: 'none', stack: true, use: { type: 'buffPower', value: 15, duration: 20 } },
+  phosphor_grenade:{ id: 'phosphor_grenade', name: 'Фосфорная граната', slot: 'none', stack: true, use: { type: 'flash', radius: 7 } },
+
+  // Материалы
   iron_ore:        { id: 'iron_ore', name: 'Железная руда', slot: 'none', stack: true, mat: true },
   moonstone:       { id: 'moonstone', name: 'Лунный камень', slot: 'none', stack: true, mat: true },
+  lum_shard:       { id: 'lum_shard', name: 'Осколок люминита', slot: 'none', stack: true, mat: true, lore: 'Тёплый изнутри. Гильдия платит за тепло.' },
+  chimera_hide:    { id: 'chimera_hide', name: 'Шкура химеры', slot: 'none', stack: true, mat: true },
+  wraith_essence:  { id: 'wraith_essence', name: 'Эссенция упыря', slot: 'none', stack: true, mat: true },
+  bone_fragment:   { id: 'bone_fragment', name: 'Костяная фракция', slot: 'none', stack: true, mat: true },
+  colossus_skull:  { id: 'colossus_skull', name: 'Череп Костяного Колосса', slot: 'none', stack: false, quest: true },
+  inquisitor_mask: { id: 'inquisitor_mask', name: 'Маска инквизитора', slot: 'none', stack: false, quest: true, lore: 'Латунь, трещина пополам и запах чужого рая.' },
   scroll_nightforge:{ id: 'scroll_nightforge', name: 'Свиток Ночного Кузнечного Дела', slot: 'none', stack: true, quest: true,
                      lore: 'Три строки, три удара молота, одна ночь. Так куют оружие, которое не боится тьмы.' },
 };
@@ -474,39 +580,185 @@ export const RECIPES = [
   { out: 'nightfall_blade', mats: { iron_ore: 4, moonstone: 2 }, time: 3.0, reqLevel: 3 },
   { out: 'duskweave',    mats: { moonstone: 3, iron_ore: 1 }, time: 3.0, reqLevel: 3 },
   { out: 'sentinel_charm', mats: { iron_ore: 3, moonstone: 2 }, time: 3.0, reqLevel: 4 },
+  { out: 'lumlantern',   mats: { lum_shard: 2, iron_ore: 1 }, time: 2.5, reqLevel: 3 },
+  { out: 'chimera_fang_dagger', mats: { chimera_hide: 2, lum_shard: 1 }, time: 2.5, reqLevel: 4 },
+  { out: 'ashen_plate',  mats: { wraith_essence: 3, iron_ore: 4 }, time: 3.5, reqLevel: 6 },
   { out: 'health_potion', mats: { moonstone: 1 }, time: 1.0, reqLevel: 1 },
   { out: 'mana_potion',   mats: { iron_ore: 1 }, time: 1.0, reqLevel: 1 },
 ];
 
 // --- Квесты ------------------------------------------------------------------
+// location — id локации; kill: mob+count; collect: item+count; talk: npc; escort/gather: point
 export const QUESTS = [
+  // ======= Застава: стартовая цепочка =======
   {
-    id: 'q_forge', name: 'Ночь Военного Ремесла', giver: 'Дормир Молот', color: '#ffb64a',
-    hint: 'Найди свиток Ночного Кузнечного Дела и принеси его Дормиру.',
+    id: 'q_firstlight', name: 'Первый рассвет не было', loc: 'outpost', giver: 'serj', color: '#7fa8d9',
+    hint: 'Сержант Вьюг хочет, чтобы ты привык к ночи до того, как ночь привыкнет к тебе.',
+    steps: [
+      { text: 'Поговори с сержантом Вьюгом на плацу.', type: 'talk', npc: 'serj' },
+      { text: 'Перебей тенивых волков у палисада (4).', type: 'kill', mob: 'wolf', count: 4 },
+      { text: 'Вернись к сержанту с докладом.', type: 'talk', npc: 'serj' },
+    ],
+    reward: { xp: 70, gold: 20, items: ['health_potion'], rep: { forge: 5 } },
+  },
+  {
+    id: 'q_forge', name: 'Ночь Военного Ремесла', loc: 'outpost', giver: 'dormir', color: '#ffb64a',
+    hint: 'Без свитка Дормир выкуёт тебе только гвоздь. Свиток носит Надзиратель Ночи.',
     steps: [
       { text: 'Отыщи Свиток Ночного Кузнечного Дела.', type: 'collect', item: 'scroll_nightforge', count: 1 },
-      { text: 'Вернись к Дормиру Молоту.', type: 'talk', npc: 'dormir' },
+      { text: 'Принеси свиток Дормиру Молоту.', type: 'talk', npc: 'dormir' },
     ],
-    reward: { xp: 120, gold: 40, items: ['moonstone', 'moonstone'] },
+    reward: { xp: 120, gold: 40, items: ['moonstone', 'moonstone'], rep: { forge: 10 } },
   },
   {
-    id: 'q_wolves', name: 'Стая у стены', giver: 'Дормир Молот', color: '#7fa8d9',
-    hint: 'Тенивые волки рыщут у палисада. Убей шесть.',
+    id: 'q_wolves', name: 'Стая у стены', loc: 'hollow', giver: 'dormir', color: '#7fa8d9',
+    hint: 'Тенивые волки рыщут у Выгоршей Пустоши и гасят путевые факелы.',
     steps: [
       { text: 'Перебей тенивых волков (6).', type: 'kill', mob: 'wolf', count: 6 },
+      { text: 'Доложи Дормиру Молоту.', type: 'talk', npc: 'dormir' },
     ],
-    reward: { xp: 90, gold: 25, items: ['health_potion', 'health_potion'] },
+    reward: { xp: 90, gold: 25, items: ['health_potion', 'health_potion'], rep: { forge: 6 } },
   },
   {
-    id: 'q_bones', name: 'Кости у костра', giver: 'Ведьма Илва', color: '#b48ce8',
-    hint: 'Неупокоенные поднимаются у старых кострищ. Очисти место.',
+    id: 'q_ore', name: 'Руда для горна', loc: 'hollow', giver: 'gilda', color: '#e8a33d',
+    hint: 'Гильда Торговый Путь закупает железную руду — без неё её лавка превратится в склад пустых бочек.',
     steps: [
-      { text: 'Уничтожь неупокоенных (5).', type: 'kill', mob: 'skeleton', count: 5 },
-      { text: 'Доложи Ведьме Илве.', type: 'talk', npc: 'ilva' },
+      { text: 'Добудь железную руду (6).', type: 'collect', item: 'iron_ore', count: 6 },
+      { text: 'Продай/принеси руду Гильде в лавку.', type: 'talk', npc: 'gilda' },
     ],
-    reward: { xp: 140, gold: 50, items: ['mana_potion', 'ember_ring'] },
+    reward: { xp: 80, gold: 45, items: ['lum_shard'], rep: { umbral: 6 } },
+  },
+  {
+    id: 'q_lanterns', name: 'Фонарь против тьмы', loc: 'outpost', giver: 'gilda', color: '#9b7fd4',
+    hint: 'Контрабандный люмен всё ещё светит. Собери осколки люминита — Гильда спаяет фонарь.',
+    steps: [
+      { text: 'Принеси 3 осколка люминита.', type: 'collect', item: 'lum_shard', count: 3 },
+      { text: 'Забери готовый люмен-фонарь у Гильды.', type: 'talk', npc: 'gilda' },
+    ],
+    reward: { xp: 110, gold: 30, items: ['lumlantern'], rep: { umbral: 8 } },
+  },
+  // ======= Курганы: скелетная линия =======
+  {
+    id: 'q_bones', name: 'Кости у костра', loc: 'barrow', giver: 'ilva', color: '#b48ce8',
+    hint: 'Неупокоенные поднимаются у старых кострищ курганов. Очисти место — Илве нужны их мозговые камни.',
+    steps: [
+      { text: 'Уничтожь неупокоенных воинов (5).', type: 'kill', mob: 'skeleton', count: 5 },
+      { text: 'Доложи Ведьме Илве у шатра.', type: 'talk', npc: 'ilva' },
+    ],
+    reward: { xp: 140, gold: 50, items: ['mana_potion', 'ember_ring'], rep: { dusk: 6 } },
+  },
+  {
+    id: 'q_colossus', name: 'Тот, кто ждал смены', loc: 'barrow', giver: 'serj', color: '#c07ff0',
+    hint: 'Костяной Колосс — часовой Первого Дозора. Он так и не получил приказа лечь.',
+    steps: [
+      { text: 'Спусти Костяного Колосса с большого кургана.', type: 'kill', mob: 'bone_colossus', count: 1 },
+      { text: 'Принеси череп колосса сержанту Вьюгу.', type: 'collect', item: 'colossus_skull', count: 1 },
+      { text: 'Доложи сержанту.', type: 'talk', npc: 'serj' },
+    ],
+    reward: { xp: 220, gold: 80, items: ['sentinel_charm'], rep: { forge: 12, order: 6 } },
+  },
+  {
+    id: 'q_moonstone', name: 'Лунный камень из насыпей', loc: 'barrow', giver: 'ilva', color: '#5aa9ff',
+    hint: 'Курганы держат в себе лунный камень — слёзы луны, въевшиеся в кости.',
+    steps: [
+      { text: 'Собери лунный камень (5).', type: 'collect', item: 'moonstone', count: 5 },
+      { text: 'Отнеси камни Илве.', type: 'talk', npc: 'ilva' },
+    ],
+    reward: { xp: 130, gold: 40, items: ['mana_potion', 'mana_potion'], rep: { dusk: 8 } },
+  },
+  // ======= Бор: химерья линия =======
+  {
+    id: 'q_whisper', name: 'Шёпот между стволов', loc: 'pinewood', giver: 'maera', color: '#6fcf97',
+    hint: 'Мэйра слышит, как бор зовёт своих мертвецов обратно. Тени в чаще — это эхо, ставшее зубами.',
+    steps: [
+      { text: 'Поговори с Мэйрой у тотема.', type: 'talk', npc: 'maera' },
+      { text: 'Разведай о шёпоте: убей ночных теней в бору (5).', type: 'kill', mob: 'shade', count: 5 },
+      { text: 'Вернись к Мэйре с ответом.', type: 'talk', npc: 'maera' },
+    ],
+    reward: { xp: 180, gold: 60, items: ['duskweave'], rep: { dusk: 12 } },
+  },
+  {
+    id: 'q_cubs', name: 'Коготь и шкура', loc: 'pinewood', giver: 'maera', color: '#8fd18f',
+    hint: 'Дикие детёныши химер портят ручных. Шкура целого детёныша стоит дороже мечи среднего качества.',
+    steps: [
+      { text: 'Добудь шкуры детёнышей химеры (4).', type: 'collect', item: 'chimera_hide', count: 4 },
+      { text: 'Принеси шкуры Мэйре.', type: 'talk', npc: 'maera' },
+    ],
+    reward: { xp: 160, gold: 55, items: ['poison_vial', 'poison_vial'], rep: { dusk: 10 } },
+  },
+  {
+    id: 'q_torches', name: 'Погашенные факелы', loc: 'pinewood', giver: 'serj', color: '#ff8a4a',
+    hint: 'Кто-то гасит путевые факелы к бору. Без света тропа перестаёт существовать.',
+    steps: [
+      { text: 'Убей упырей на тропе к бору (4).', type: 'kill', mob: 'wraith', count: 4 },
+      { text: 'Доложи сержанту Вьюгу.', type: 'talk', npc: 'serj' },
+    ],
+    reward: { xp: 170, gold: 65, items: ['lum_shard', 'lum_shard'], rep: { forge: 8 } },
+  },
+  // ======= Шахта: люминитовая линия (Горн) =======
+  {
+    id: 'q_stope', name: 'Забой №4', loc: 'minecamp', giver: 'bruno', color: '#ff8a4a',
+    hint: 'Прораб Бруно Железнобокий платит за то, что шахта снова дышит, а не хрипит.',
+    steps: [
+      { text: 'Поговори с прорабом Бруно у подъёмника.', type: 'talk', npc: 'bruno' },
+      { text: 'Выбей люминитовых големов из забоя (5).', type: 'kill', mob: 'golem_lum', count: 5 },
+      { text: 'Доложи Бруно: забой чист.', type: 'talk', npc: 'bruno' },
+    ],
+    reward: { xp: 200, gold: 90, items: ['lum_shard', 'lum_shard', 'lum_shard'], rep: { forge: 15 } },
+  },
+  {
+    id: 'q_deepvein', name: 'Жила глубже сердца', loc: 'minecamp', giver: 'bruno', color: '#ffd76a',
+    hint: 'Глубинный люминит тёплый на ощупь. Три куска — и подъёмник снова тянет клеть.',
+    steps: [
+      { text: 'Добудь 8 осколков люминита.', type: 'collect', item: 'lum_shard', count: 8 },
+      { text: 'Принеси люминит прорабу.', type: 'talk', npc: 'bruno' },
+    ],
+    reward: { xp: 210, gold: 110, items: ['runesplitter'], rep: { forge: 14 } },
+  },
+  // ======= Причалы Аэрии: линия Синдиката =======
+  {
+    id: 'q_debt', name: 'Долг Аэрии', loc: 'aeriadocks', giver: 'maera', color: '#9b7fd4',
+    hint: 'Синдикат не прощает — Синдикат пересчитывает. Мэйра должна кое-кому свет. Ты заплатишь эссенцией.',
+    steps: [
+      { text: 'Собери 5 эссенций упыря с причалов.', type: 'collect', item: 'wraith_essence', count: 5 },
+      { text: 'Передай эссенции Мэйре на тёмном рынке.', type: 'talk', npc: 'maera' },
+    ],
+    reward: { xp: 230, gold: 130, items: ['phosphor_grenade'], rep: { umbral: 15 } },
+  },
+  {
+    id: 'q_smuggle', name: 'Контрабанда света', loc: 'aeriadocks', giver: 'gilda', color: '#c8c8c8',
+    hint: 'Гильда ведёт «бухгалтерию». Фонарь, который числится потерянным, светит вдвое веселее.',
+    steps: [
+      { text: 'Очисти склады от упырей (6).', type: 'kill', mob: 'wraith', count: 6 },
+      { text: 'Заберись на мачту: принеси 2 люмен-фонаря со склада.', type: 'collect', item: 'lumlantern', count: 2 },
+      { text: 'Отчитайся Гильде.', type: 'talk', npc: 'gilda' },
+    ],
+    reward: { xp: 240, gold: 120, items: ['moonsignet'], rep: { umbral: 12, forge: -5 } },
+  },
+  // ======= Охота на боссов (общая линия) =======
+  {
+    id: 'q_overseer', name: 'Надзиратель Ночи', loc: 'ashfields', giver: 'serj', color: '#c07ff0',
+    hint: 'Он пасёт химер, как пастух овечье стадо. Пока он дышит — застава считает не дни, а факелы.',
+    steps: [
+      { text: 'Найди и уничтожь Надзирателя Ночи.', type: 'kill', mob: 'overseer', count: 1 },
+      { text: 'Доложи сержанту Вьюгу.', type: 'talk', npc: 'serj' },
+    ],
+    reward: { xp: 400, gold: 200, items: ['moonstone', 'moonstone', 'lum_shard'], rep: { forge: 20, order: 10 } },
+  },
+  {
+    id: 'q_inquisitor', name: 'Ересь яркого света', loc: 'ashfields', giver: 'ilva', color: '#ffd76a',
+    hint: 'Инквизитор Эонглор сжёг три гнезда вместе с тремя деревнями. Илва предлагает решить вопрос тьмой.',
+    steps: [
+      { text: 'Уничтожь Инквизитора Эонглора.', type: 'kill', mob: 'inquisitor', count: 1 },
+      { text: 'Принеси его маску Илве.', type: 'collect', item: 'inquisitor_mask', count: 1 },
+      { text: 'Доложи Илве.', type: 'talk', npc: 'ilva' },
+    ],
+    reward: { xp: 460, gold: 220, items: ['ashen_plate'], rep: { dusk: 20, order: -15 } },
   },
 ];
+export function questById(qid) { return QUESTS.find(q => q.id === qid) || null; }
+export function questsForNpc(npcId) { return QUESTS.filter(q => q.giver === npcId); }
+export function questsForLocation(locId) { return QUESTS.filter(q => q.loc === locId); }
 
 // --- Мобы --------------------------------------------------------------------
 export const MOBS = {
@@ -518,40 +770,102 @@ export const MOBS = {
   skeleton: {
     id: 'skeleton', name: 'Неупокоенный воин', level: 4, hp: 80, dmg: [7, 12], speed: 2.4,
     xp: 34, gold: [5, 12], aggro: 12, attackRange: 2.0, respawn: 18, shape: 'skeleton',
-    loot: [['iron_ore', 0.4], ['moonstone', 0.15], ['mail_hauberk', 0.06]],
+    loot: [['iron_ore', 0.4], ['moonstone', 0.15], ['bone_fragment', 0.5], ['mail_hauberk', 0.06]],
   },
   shade: {
     id: 'shade', name: 'Ночная Тень', level: 6, hp: 110, dmg: [10, 16], speed: 3.0,
     xp: 55, gold: [8, 18], aggro: 13, attackRange: 2.2, respawn: 22, shape: 'shade',
-    loot: [['moonstone', 0.3], ['duskweave', 0.07], ['nightfall_blade', 0.04]],
+    loot: [['moonstone', 0.3], ['duskweave', 0.07], ['nightfall_blade', 0.04], ['lum_shard', 0.12]],
+  },
+  wraith: {
+    id: 'wraith', name: 'Упырь Пепелища', level: 7, hp: 130, dmg: [11, 18], speed: 3.4,
+    xp: 70, gold: [10, 22], aggro: 14, attackRange: 1.9, respawn: 24, shape: 'wraith',
+    loot: [['wraith_essence', 0.45], ['mana_potion', 0.15], ['lum_shard', 0.18], ['ember_ring', 0.05]],
+  },
+  chimera_cub: {
+    id: 'chimera_cub', name: 'Детёныш химеры', level: 8, hp: 165, dmg: [13, 20], speed: 3.8,
+    xp: 88, gold: [12, 26], aggro: 12, attackRange: 2.1, respawn: 26, shape: 'chimera',
+    loot: [['chimera_hide', 0.6], ['poison_vial', 0.25], ['moonstone', 0.2], ['chimera_fang_dagger', 0.05]],
+  },
+  golem_lum: {
+    id: 'golem_lum', name: 'Люминитовый голем', level: 9, hp: 240, dmg: [15, 24], speed: 1.9,
+    xp: 110, gold: [16, 34], aggro: 10, attackRange: 2.4, respawn: 30, shape: 'golem',
+    loot: [['lum_shard', 0.7], ['iron_ore', 0.5], ['sentinel_charm', 0.06], ['runesplitter', 0.03]],
+  },
+  bone_colossus: {
+    id: 'bone_colossus', name: 'Костяной Колосс', level: 11, hp: 420, dmg: [18, 28], speed: 2.1,
+    xp: 210, gold: [40, 80], aggro: 15, attackRange: 3.0, respawn: 90, shape: 'colossus', boss: true, elite: true,
+    loot: [['colossus_skull', 1.0], ['warden_plate', 0.15], ['moonsignet', 0.1], ['moonstone', 0.6]],
+  },
+  inquisitor: {
+    id: 'inquisitor', name: 'Инквизитор Эонглор', level: 13, hp: 560, dmg: [22, 34], speed: 2.5,
+    xp: 300, gold: [70, 130], aggro: 16, attackRange: 2.8, respawn: 120, shape: 'inquisitor', boss: true, elite: true,
+    loot: [['inquisitor_mask', 1.0], ['ashen_plate', 0.35], ['stormrod', 0.15], ['phosphor_grenade', 0.4]],
   },
   overseer: {
     id: 'overseer', name: 'Надзиратель Ночи', level: 9, hp: 320, dmg: [14, 22], speed: 2.2,
     xp: 180, gold: [30, 60], aggro: 14, attackRange: 2.6, respawn: 60, shape: 'overseer', boss: true,
-    loot: [['runesplitter', 0.18], ['moonspike', 0.18], ['stormrod', 0.18], ['moonsignet', 0.12], ['scroll_nightforge', 0.5]],
+    loot: [['runesplitter', 0.18], ['moonspike', 0.18], ['stormrod', 0.18], ['moonsignet', 0.12], ['scroll_nightforge', 0.5], ['lum_shard', 0.5]],
   },
 };
+export const MOB_KEYS = Object.keys(MOBS);
 
 // --- NPC ---------------------------------------------------------------------
 export const NPCS = {
-  dormir: { id: 'dormir', name: 'Дормир Молот', role: 'Кузнец · крафт и квесты', color: '#d98c4a', x: 6, z: -4, quests: ['q_forge', 'q_wolves'] },
-  ilva:   { id: 'ilva', name: 'Ведьма Илва', role: 'Травница · зелья', color: '#9a6fd0', x: -8, z: 5, quests: ['q_bones'] },
-  serj:   { id: 'serj', name: 'Сержант Вьюг', role: 'Застава · обучение', color: '#6fa8d0', x: -2, z: 9, tutorial: true },
+  dormir: { id: 'dormir', name: 'Дормир Молот', role: 'Кузнец · крафт и задания', faction: 'forge', color: '#d98c4a', loc: 'outpost', offset: [6, -4], quests: ['q_forge', 'q_wolves'] },
+  ilva:   { id: 'ilva', name: 'Ведьма Илва', role: 'Травница · зелья и обряды', faction: 'dusk', color: '#9a6fd0', loc: 'outpost', offset: [-8, 5], quests: ['q_bones', 'q_moonstone', 'q_inquisitor'] },
+  serj:   { id: 'serj', name: 'Сержант Вьюг', role: 'Застава · дозоры и обучение', faction: 'forge', color: '#6fa8d0', loc: 'outpost', offset: [-2, 9], tutorial: true, quests: ['q_firstlight', 'q_colossus', 'q_torches', 'q_overseer'] },
+  gilda:  { id: 'gilda', name: 'Гильда Торговый Путь', role: 'Лавка · скупка и контрабанда', faction: 'umbral', color: '#c8b06a', loc: 'outpost', offset: [10, 7], quests: ['q_ore', 'q_lanterns', 'q_smuggle'], trader: true },
+  bruno:  { id: 'bruno', name: 'Бруно Железнобокий', role: 'Прораб · шахта и подрывы', faction: 'forge', color: '#ff8a4a', loc: 'minecamp', offset: [0, 0], quests: ['q_stope', 'q_deepvein'] },
+  maera:  { id: 'maera', name: 'Мэйра Тихий Яд', role: 'Мейстерица · яды и слухи', faction: 'umbral', color: '#7fe0c8', loc: 'pinewood', offset: [2, -3], quests: ['q_whisper', 'q_cubs', 'q_debt'] },
 };
+export const NPC_KEYS = Object.keys(NPCS);
+export function npcsForWorld(worldId) {
+  return NPC_KEYS.filter(k => {
+    const npc = NPCS[k];
+    const loc = LOCATIONS[npc.loc];
+    if (!loc) return false;
+    return loc.world === worldId || loc.world === null;
+  }).map(k => NPCS[k]);
+}
 
 // --- Диалоги -----------------------------------------------------------------
 export const DIALOGS = {
   serj: [
     'Застава на ножках, новичок. WASD — ноги, ЛКМ — клинок, ПКМ по врагу — способность.',
     'Ночью тут ремесло военное цветёт. Кузницу найдёшь у Дормира, он не кусается. Обычно.',
+    'Считай не дни, а факелы. Кончатся факелы — кончится застава.',
+    'Дозор Первых лёг в курганах. Они всё ещё ждут смены. Не мешай им ждать.',
   ],
   dormir: [
     'Пока горит горн — мы куём. Пока не горит — ищем, чем разжечь.',
     'Свиток Ночного Кузнечного Дела у Надзирателя Ночи. Без него я тебе только гвоздь выкую.',
+    'Руду тащи Гильде, она торгашка, но счёт знает. Мне неси — я знаю огонь.',
+    'Сталь любит ночь. День её калит, а ночь закаляет.',
   ],
   ilva: [
     'Траву я собираю при луне, кости — при звезде. Не путай.',
     'Неупокоенные у кострищ? Вот и славно, значит луна сегодня злая.',
+    'Орден молится светом, я молчу тьмой. Разница в том, кто выживет.',
+    'Лунный камень в курганах растёт, как зуб в десне мёртвого. Вырви — не обидится.',
+  ],
+  gilda: [
+    'Всё, что светит, можно продать дважды: фонарь и надежду.',
+    'Люминит, шкуры, эссенция — неси всё. Я не привередливая, я бухгалтер.',
+    'Синдикат платит за тишину. Горн платит за шум. Выбирай, кого слушать.',
+    'Контрабандный свет дешевле честного. Тьма всё равно не разбирает.',
+  ],
+  bruno: [
+    'Забой №4 дышит через раз. Внутри — големы из люминита. Разберись — заплатит Гильдия.',
+    'Мы тут не магию бутафорим, мы паром и сталью. А стая ваша химерная — материал.',
+    'Клеть стоит. Подъёмник молчит. Люминит холодный. Это три плохие новости, четвёртая придёт сама.',
+    'Кто в шахте не работал — тот не знает, как звучит тьма изнутри.',
+  ],
+  maera: [
+    'Бор шепчет. Если ты его слышишь — значит, он уже знает твоё имя.',
+    'Детёныши портят ручных. Убей диких, шкуры принеси мне, мясо — себе.',
+    'Яд — это просто терпение в жидком виде.',
+    'Синдикат не прощает долгов. Он их пересчитывает под процент.',
   ],
 };
 

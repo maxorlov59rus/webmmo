@@ -5,6 +5,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { CLASSES, ITEMS, ABILITIES, STAT_KEYS, ARCHETYPES, ARCHETYPE_KEYS, FACTIONS, WORLDS } from '../data/consts.js';
+import { templateAppearance, rollAppearance, appearanceFromSeed } from '../data/appearance.js';
 
 export function xpForLevel(level) { return Math.round(80 * Math.pow(level, 1.55)); }
 
@@ -24,7 +25,7 @@ export function defaultAccount(email, nick) {
 // Архетип по умолчанию для роли (если игрок не выбирал — «рекрут» своей гильдии)
 const DEFAULT_ARCH = { warden: 'steelbreaker', mage: 'chemist', scout: 'phosphor' };
 export function resolveArchetype(role, factionId, archetypeId) {
-  if (archetypeId && ARCHETYPES[archetypeId]) return archetypeId;
+  if (archetypeId && ARCHETYPES[archetypeId] && (!factionId || ARCHETYPES[archetypeId].faction === factionId)) return archetypeId;
   if (factionId) {
     const inFac = ARCHETYPE_KEYS.filter(k => ARCHETYPES[k].faction === factionId && ARCHETYPES[k].role === role);
     if (inFac.length) return inFac[0];
@@ -50,6 +51,9 @@ export function createCharacter(name, classId, seed = Date.now(), opts = {}) {
     quests: [],             // [{id, step, progress}]
     kills: {},              // mobId -> count
     createdAt: seed,
+    appearance: opts.appearance || templateAppearance(opts.template) || rollAppearance(Math.random, faction) || appearanceFromSeed(seed),
+    template: opts.template || null,
+    pos: null,              // {x, z} — позиция в мире (для возврата с логаута)
   };
   for (const id of cls.startKit) addItem(c, id, 1);
   autoEquipBest(c);
@@ -227,6 +231,8 @@ export function serialize(c) {
     level: c.level, xp: c.xp, statPoints: c.statPoints, gold: c.gold,
     base: c.base, allocated: c.allocated, hp: c.hp, mp: c.mp,
     equipment: c.equipment, inventory: c.inventory, quests: c.quests, kills: c.kills,
+    appearance: c.appearance, template: c.template,
+    pos: c.pos ? { x: Math.round(c.pos.x * 100) / 100, z: Math.round(c.pos.z * 100) / 100 } : null,
   });
 }
 export function deserialize(json) {
@@ -239,6 +245,8 @@ export function deserialize(json) {
       level: d.level, xp: d.xp, statPoints: d.statPoints, gold: d.gold,
       allocated: d.allocated, equipment: d.equipment, inventory: d.inventory,
       quests: d.quests || [], kills: d.kills || {},
+      appearance: d.appearance || c.appearance, template: d.template || null,
+      pos: d.pos || null,
     });
     recalc(c);
     c.hp = Math.min(d.hp ?? c.stats.maxHp, c.stats.maxHp);
