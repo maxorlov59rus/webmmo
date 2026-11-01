@@ -1,0 +1,437 @@
+/* ============================================================
+   НОЧЬ ВОЕННОГО РЕМЕСЛА — интерфейс (экраны меню + игровой HUD)
+   Поверх базовой style.css. Тёмное фэнтези: тушь, золото, угли.
+   ============================================================ */
+
+/* ---------- Общие элементы auth-потока ---------- */
+.menu-frame.narrow { max-width: 560px; }
+.menu-frame.wide { max-width: 1180px; }
+
+.screen-title {
+  font-family: 'Cormorant SC', serif; font-size: clamp(26px, 4vw, 40px);
+  letter-spacing: .18em; color: var(--gold); margin-bottom: 18px;
+  text-shadow: 0 0 30px rgba(255, 210, 122, .3);
+}
+.acc-line { font-size: 14px; color: #8a94ac; margin-bottom: 14px; }
+.acc-line a { color: var(--moon); text-decoration: none; }
+.acc-line a:hover { color: var(--gold); }
+.world-tag { font-size: 14px; color: #8a94ac; letter-spacing: .06em; }
+.sub-title {
+  font-family: 'Cormorant SC', serif; font-size: 17px; letter-spacing: .12em;
+  color: var(--moon); margin: 14px 0 8px; text-align: left;
+}
+
+button.primary {
+  background: linear-gradient(#5a3a1a, #2a1a0a);
+  border: 1px solid var(--gold); color: var(--gold);
+  font-family: 'Cormorant SC', serif; letter-spacing: .08em; font-size: 17px;
+  padding: 10px 26px;
+}
+button.primary:hover:not(:disabled) { box-shadow: 0 0 26px rgba(255, 210, 122, .45); }
+button.ghost { background: rgba(16, 20, 32, .8); }
+button.ghost.small { font-size: 13px; padding: 4px 10px; }
+
+/* ---------- Вкладки входа/регистрации ---------- */
+.auth-tabs { display: flex; gap: 8px; justify-content: center; margin: 20px 0 12px; }
+.auth-tab {
+  background: transparent; border: 1px solid var(--panel-br); border-bottom: none;
+  border-radius: 6px 6px 0 0; padding: 7px 26px; color: #8a94ac; font-size: 15px;
+}
+.auth-tab.active { color: var(--gold); border-color: var(--gold); background: rgba(30, 24, 12, .5); }
+.auth-form {
+  background: rgba(10, 13, 22, .75); border: 1px solid var(--panel-br);
+  border-radius: 0 8px 8px 8px; padding: 18px 22px 14px; text-align: left;
+}
+.auth-form .name-label { font-size: 13.5px; color: #9aa3ba; margin-bottom: 12px; }
+.auth-form input {
+  display: block; width: 100%; margin-top: 5px;
+  background: rgba(6, 9, 16, .9); border: 1px solid #3a4258; color: var(--ink);
+  font-family: inherit; font-size: 16px; padding: 9px 12px; border-radius: 4px;
+}
+.auth-form input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 12px rgba(255, 210, 122, .25); }
+.auth-msg { min-height: 20px; font-size: 14px; margin: 6px 0 10px; text-align: center; color: #8a94ac; }
+.auth-msg.err { color: #ff9a8a; }
+.auth-msg.ok { color: #8fd18f; }
+.lore-strip {
+  margin-top: 22px; font-size: 13.5px; line-height: 1.55; color: #7a8298;
+  border-top: 1px dashed rgba(160, 140, 90, .3); padding-top: 14px; text-align: center;
+}
+.lore-strip b { color: var(--ember); }
+
+/* ---------- Список миров ---------- */
+.world-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 10px 0 16px; }
+.world-card {
+  text-align: left; cursor: pointer; padding: 14px 16px;
+  background: var(--panel-bg); border: 1px solid var(--panel-br); border-radius: 8px;
+  transition: transform .12s, box-shadow .12s;
+}
+.world-card:hover { transform: translateY(-3px); box-shadow: 0 8px 26px rgba(0, 0, 0, .5); }
+.world-card.selected { border-color: var(--gold); box-shadow: 0 0 22px rgba(255, 210, 122, .3); }
+.wc-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.wc-top b { font-family: 'Cormorant SC', serif; font-size: 19px; color: var(--ink); letter-spacing: .05em; }
+.wc-tag { font-size: 12px; color: #8a94ac; }
+.wc-tag.hot { color: #ff9a5a; }
+.wc-meta { font-size: 12.5px; color: #6a7488; margin-bottom: 6px; }
+.wc-desc { font-size: 13px; color: #aab2c8; line-height: 1.4; min-height: 54px; }
+.wc-char { margin-top: 8px; font-size: 13.5px; border-top: 1px dashed rgba(160, 140, 90, .25); padding-top: 7px; }
+.wc-empty { color: #5a6378; font-style: italic; }
+
+/* ---------- Карточки фракций ---------- */
+.faction-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin: 6px 0 18px; }
+.faction-card {
+  text-align: left; cursor: pointer; padding: 14px 16px; position: relative;
+  background: var(--panel-bg); border: 1px solid var(--panel-br); border-radius: 8px;
+  border-top: 3px solid var(--fac-color, #888);
+  transition: transform .12s, box-shadow .12s;
+}
+.faction-card:hover { transform: translateY(-3px); }
+.faction-card.selected { border-color: var(--gold); box-shadow: 0 0 24px rgba(255, 210, 122, .3); }
+.fc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.fc-head b { font-family: 'Cormorant SC', serif; font-size: 19px; color: var(--fac-color); letter-spacing: .04em; }
+.fc-icon { font-size: 24px; filter: drop-shadow(0 0 6px var(--fac-color)); }
+.fc-motto { font-style: italic; font-size: 13px; color: var(--ink); margin-bottom: 8px; }
+.fc-desc { font-size: 13px; color: #aab2c8; line-height: 1.45; min-height: 84px; }
+.fc-meta { font-size: 12px; color: #6a7488; margin: 8px 0; line-height: 1.5; }
+.fc-arches { font-size: 12.5px; color: var(--fac-color); border-top: 1px dashed rgba(160, 140, 90, .25); padding-top: 7px; }
+
+/* ---------- Экран создания персонажа ---------- */
+.create-cols { display: grid; grid-template-columns: 300px 1fr; gap: 22px; text-align: left; }
+@media (max-width: 900px) { .create-cols { grid-template-columns: 1fr; } }
+.arch-list { display: flex; flex-direction: column; gap: 6px; }
+.arch-item {
+  cursor: pointer; padding: 9px 12px; border-radius: 6px;
+  background: rgba(18, 22, 34, .85); border: 1px solid #3a4258;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.arch-item b { color: var(--ink); font-size: 15px; }
+.arch-item span { color: #7a8298; font-size: 12px; }
+.arch-item:hover { border-color: var(--ember); }
+.arch-item.selected { border-color: var(--gold); background: rgba(46, 34, 14, .6); box-shadow: 0 0 14px rgba(255, 210, 122, .25); }
+
+.class-cards.compact .class-card { width: auto; flex: 1; min-width: 150px; padding: 10px; }
+.cc-avatar {
+  width: 46px; height: 46px; border-radius: 50% 50% 45% 45%;
+  background: radial-gradient(circle at 38% 30%, var(--tpl-trim, #e8a33d), var(--tpl-body, #666) 70%);
+  border: 2px solid var(--cls-color, #888); margin-bottom: 8px;
+  box-shadow: 0 0 12px rgba(0, 0, 0, .5);
+}
+.cc-name { font-family: 'Cormorant SC', serif; font-size: 16px; color: var(--cls-color); letter-spacing: .05em; }
+.cc-tag { font-size: 11.5px; color: #8a94ac; margin-bottom: 6px; }
+.cc-stats { font-size: 11.5px; color: #aab2c8; }
+.class-card.locked { opacity: .35; cursor: default; }
+.class-card.locked:hover { transform: none; }
+
+.template-row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.tpl-select {
+  flex: 1; background: rgba(8, 12, 22, .9); border: 1px solid var(--panel-br);
+  color: var(--ink); font-family: inherit; font-size: 15px; padding: 8px 10px; border-radius: 4px;
+}
+#hero-name { text-align: left; }
+.arch-info {
+  background: rgba(12, 15, 24, .8); border: 1px solid var(--panel-br); border-radius: 6px;
+  padding: 12px 14px; font-size: 13.5px; line-height: 1.5; margin: 12px 0 16px; min-height: 90px;
+}
+.ai-name { font-family: 'Cormorant SC', serif; font-size: 20px; letter-spacing: .06em; margin-bottom: 4px; }
+.ai-desc { color: #aab2c8; }
+.ai-bonus { color: var(--gold); margin-top: 6px; }
+.ai-abil { color: #b8c4d8; margin-top: 4px; }
+.ai-tpl { color: #7a8298; font-style: italic; margin-top: 4px; }
+
+/* ---------- Экран загрузки ---------- */
+.screen.dark { background: #04060d; }
+.loading-box { text-align: center; width: min(420px, 84vw); }
+.loading-anvil {
+  width: 70px; height: 70px; margin: 0 auto 22px; border-radius: 50%;
+  border: 4px solid rgba(255, 140, 60, .2); border-top-color: var(--ember);
+  animation: spin 1s linear infinite; box-shadow: 0 0 34px rgba(255, 120, 40, .4);
+}
+@keyframes spin { to { transform: rotate(360deg) } }
+.loading-bar {
+  margin-top: 16px; height: 10px; border-radius: 5px; overflow: hidden;
+  background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 140, 60, .35);
+}
+#loading-fill {
+  height: 100%; width: 0%; border-radius: 5px;
+  background: linear-gradient(90deg, #7a3a10, var(--ember), #ffd27a);
+  transition: width .25s;
+}
+
+/* ============================================================
+   ИГРОВОЙ HUD
+   ============================================================ */
+#top-hud {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: flex-start; gap: 14px; padding: 12px 14px;
+  pointer-events: none;
+}
+#top-hud > * { pointer-events: auto; }
+.portrait-wrap { display: flex; gap: 10px; align-items: flex-start; }
+#portrait {
+  width: 58px; height: 58px; border-radius: 8px 2px 8px 2px; flex: none;
+  background: radial-gradient(circle at 40% 30%, #2a3550, #10141f);
+  border: 2px solid #777; display: flex; align-items: center; justify-content: center;
+  font-family: 'Cormorant SC', serif; font-size: 30px; color: var(--gold);
+}
+.bars { width: 236px; }
+.bar {
+  position: relative; height: 15px; margin-bottom: 4px; border-radius: 3px;
+  background: rgba(0, 0, 0, .55); border: 1px solid rgba(255, 255, 255, .15); overflow: hidden;
+}
+.bar > div { height: 100%; width: 100%; transition: width .15s; }
+.bar.hp > div { background: var(--hp); }
+.bar.mp > div { background: var(--mp); }
+.bar.xp { height: 8px; }
+.bar.xp > div { background: var(--xp); }
+.bar.target > div { background: linear-gradient(90deg, #6a1f1f, #c04535); }
+.bar > span {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #fff; text-shadow: 0 1px 2px #000;
+}
+#charline { margin-top: 6px; font-size: 14.5px; color: var(--gold); text-shadow: 0 1px 3px #000; }
+#hud-faction { color: var(--moon); font-size: 13px; }
+.top-right { margin-left: auto; text-align: right; font-size: 13px; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.server-status { color: #6fd38f; }
+.server-status::before { content: '● '; }
+.server-status.off { color: #e0a050; }
+#zone-time { color: var(--moon); letter-spacing: .1em; }
+
+/* миникарта */
+#minimap {
+  position: absolute; top: 96px; left: 14px; width: 154px;
+  background: rgba(8, 10, 18, .75); border: 1px solid var(--panel-br); border-radius: 8px;
+  padding: 3px; overflow: hidden;
+}
+#minimap-canvas { display: block; border-radius: 6px; }
+.mm-label { text-align: center; font-size: 12px; color: var(--gold); padding: 3px 0 2px; letter-spacing: .08em; }
+
+/* рамка цели */
+#target-frame {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  width: 280px; text-align: center; padding: 6px 10px;
+  background: rgba(10, 12, 20, .72); border: 1px solid rgba(200, 80, 80, .4); border-radius: 6px;
+}
+#target-name { font-size: 14px; color: #ffb0a0; margin-bottom: 4px; }
+
+/* трекер заданий */
+#quest-tracker {
+  position: absolute; top: 96px; right: 14px; width: 244px; cursor: pointer;
+  background: rgba(10, 12, 20, .72); border: 1px solid var(--panel-br); border-radius: 6px; font-size: 13px;
+}
+.qt-title {
+  padding: 6px 10px; color: var(--gold); border-bottom: 1px solid var(--panel-br);
+  font-family: 'Cormorant SC', serif; letter-spacing: .1em;
+}
+#qt-list { padding: 8px 10px; }
+.q-entry { margin-bottom: 8px; }
+.q-name { color: var(--gold); }
+.q-step { color: #aab2c8; }
+.q-none { color: #7a8298; font-style: italic; }
+
+/* чат */
+#chatbox { position: absolute; bottom: 14px; left: 14px; width: 372px; max-width: 34vw; }
+#chat-log {
+  height: 150px; overflow-y: auto; font-size: 13px; line-height: 1.45;
+  background: rgba(6, 8, 14, .55); border-radius: 6px 6px 0 0; padding: 6px 10px; scrollbar-width: thin;
+}
+#chat-log::-webkit-scrollbar { width: 5px; }
+#chat-log::-webkit-scrollbar-thumb { background: #3a4258; }
+.chat-line { word-break: break-word; }
+.chat-prefix { color: #7a8298; }
+#chat-form { display: block; }
+#chat-input {
+  width: 100%; background: rgba(6, 8, 14, .8); border: 1px solid #3a4258; border-top: none;
+  color: var(--ink); font-family: inherit; font-size: 13px; padding: 7px 10px; border-radius: 0 0 6px 6px;
+}
+#chat-input:focus { outline: none; border-color: var(--gold); }
+
+/* экшен-бар */
+#actionbar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); text-align: center; }
+#skill-slots { display: flex; gap: 6px; justify-content: center; }
+.skill-slot {
+  position: relative; width: 62px; height: 62px; border-radius: 6px; overflow: hidden; cursor: pointer;
+  background: linear-gradient(#20263a, #10131f); border: 1px solid #4a5470;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.skill-slot.ready { border-color: var(--gold); }
+.skill-slot.ready:hover { box-shadow: 0 0 16px rgba(255, 210, 122, .45); }
+.skill-slot.nomana { filter: saturate(.4); }
+.ss-key { position: absolute; top: 2px; left: 5px; font-size: 11px; color: var(--moon); }
+.ss-icon { font-size: 20px; line-height: 1; }
+.ss-name { font-size: 10.5px; text-align: center; padding: 0 3px; line-height: 1.15; color: #cfd6e4; }
+.ss-cost { position: absolute; bottom: 1px; right: 4px; font-size: 10px; color: #7aa0ff; }
+.ss-cd {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: 0%;
+  background: rgba(0, 0, 0, .72); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px;
+}
+.hintline { margin-top: 6px; font-size: 11.5px; color: #6a7488; text-shadow: 0 1px 2px #000; }
+
+/* всплывающие подсказки взаимодействия */
+.hint-pill {
+  position: absolute; top: 62%; left: 50%; transform: translateX(-50%);
+  background: rgba(10, 12, 20, .82); border: 1px solid var(--gold); color: var(--gold);
+  padding: 6px 18px; border-radius: 20px; font-size: 15px; animation: hintbob 1.6s infinite alternate;
+}
+@keyframes hintbob { to { transform: translateX(-50%) translateY(-4px) } }
+
+/* тосты */
+#toasts { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+.toast {
+  background: rgba(10, 12, 20, .85); border: 1px solid var(--panel-br);
+  padding: 7px 20px; border-radius: 4px; font-size: 16px;
+  text-shadow: 0 0 8px currentColor; animation: toastin .3s;
+}
+.toast.out { opacity: 0; transition: opacity .6s; }
+@keyframes toastin { from { transform: scale(.8); opacity: 0 } }
+
+/* лут-попап */
+#loot-popup {
+  position: absolute; bottom: 112px; right: 20px; width: 224px;
+  background: rgba(10, 14, 20, .9); border: 1px solid #6a5a2a; border-radius: 6px; padding: 8px 12px;
+}
+.loot-title { color: var(--gold); font-family: 'Cormorant SC', serif; letter-spacing: .1em; margin-bottom: 5px; }
+.loot-line { font-size: 14px; padding: 2px 0; }
+.loot-line.dim { color: #7a8298; }
+#loot-take { width: 100%; margin-top: 6px; font-size: 13px; padding: 5px; }
+
+/* ---------- Панели ---------- */
+.panel {
+  position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+  width: min(520px, 92vw); max-height: 78vh; overflow-y: auto; z-index: 15;
+  background: var(--panel-bg); border: 1px solid var(--panel-br); border-radius: 8px;
+  box-shadow: 0 14px 50px rgba(0, 0, 0, .6); padding: 0 16px 14px;
+  animation: panelin .16s ease-out;
+}
+@keyframes panelin { from { opacity: 0; transform: translateX(-50%) translateY(-8px) } }
+.panel > header {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: 'Cormorant SC', serif; font-size: 20px; letter-spacing: .12em; color: var(--gold);
+  padding: 12px 0 8px; border-bottom: 1px solid var(--panel-br); margin-bottom: 10px;
+  position: sticky; top: 0; background: var(--panel-bg); z-index: 1;
+}
+.panel-close { padding: 2px 10px; font-size: 14px; }
+.panel-body { font-size: 14px; }
+
+.inv-layout { display: grid; grid-template-columns: 210px 1fr; gap: 16px; }
+.equip-col .equip-slot {
+  background: rgba(20, 24, 38, .8); border: 1px solid #4a5470; border-radius: 6px;
+  padding: 8px; text-align: center; min-height: 56px; cursor: pointer; margin-bottom: 8px;
+}
+.equip-col .equip-slot:hover { border-color: var(--ember); }
+.slot-label { font-size: 11px; color: #7a8298; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 4px; }
+.slot-empty { color: #4a5470; font-size: 13px; }
+.item-name { font-size: 13.5px; }
+.inv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.inv-item {
+  position: relative; background: rgba(20, 24, 38, .8); border: 1px solid #666; border-radius: 5px;
+  padding: 8px 6px; min-height: 54px; font-size: 12px; cursor: pointer; text-align: center;
+  display: flex; align-items: center; justify-content: center;
+}
+.inv-item:hover { filter: brightness(1.4); }
+.iqty { position: absolute; right: 4px; bottom: 2px; font-size: 11px; color: #fff; }
+.inv-foot { margin-top: 10px; font-size: 13px; color: var(--gold); }
+.inv-empty { color: #7a8298; font-style: italic; grid-column: 1 / -1; padding: 12px; text-align: center; }
+
+.cd-name { font-family: 'Cormorant SC', serif; font-size: 24px; }
+.cd-sub { color: #8a94ac; font-size: 13.5px; margin: 2px 0 8px; }
+.cd-xp { font-size: 13.5px; color: #aab2c8; }
+.cd-points { margin: 6px 0 10px; }
+.cd-points b { color: var(--gold); }
+.cd-points.dim { opacity: .5; }
+.stat-row {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+  padding: 5px 8px; border-bottom: 1px dashed rgba(160, 140, 90, .18); font-size: 15px;
+}
+.stat-row .sval { color: var(--gold); min-width: 30px; text-align: right; }
+.stat-row .plus { width: 30px; padding: 0 0 2px; font-size: 16px; }
+.derived { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 10px; font-size: 13.5px; color: #aab2c8; }
+
+.spell-row { display: flex; gap: 10px; padding: 8px; border-bottom: 1px dashed rgba(160, 140, 90, .18); align-items: flex-start; }
+.spell-row.passive { opacity: .75; }
+.spell-key { width: 26px; height: 26px; flex: none; border: 1px solid var(--panel-br); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--moon); }
+.spell-main { flex: 1; }
+.spell-main b { color: var(--gold); }
+.spell-lvl { font-size: 12px; color: #7a8298; }
+.spell-desc { font-size: 13px; color: #aab2c8; margin-top: 2px; }
+.spell-cost { font-size: 12.5px; color: #7aa0ff; white-space: nowrap; }
+
+.q-full { padding: 8px 0; border-bottom: 1px dashed rgba(160, 140, 90, .2); font-size: 14px; line-height: 1.5; }
+.q-full .done { color: #6a7488; text-decoration: line-through; }
+.q-reward { color: var(--gold); font-size: 13px; margin-top: 4px; }
+
+.help-body { font-size: 14px; line-height: 1.55; }
+.help-body ul { margin: 6px 0 12px 20px; }
+.help-body li { margin-bottom: 3px; }
+.help-body kbd {
+  background: #1a2030; border: 1px solid #4a5470; border-radius: 3px; padding: 1px 6px; font-size: 12px; color: var(--moon);
+}
+
+/* крафт-панель */
+.craft-mats { display: flex; gap: 20px; font-size: 14px; margin-bottom: 12px; color: #d8b48a; }
+.recipe {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 10px; margin-bottom: 8px;
+  background: rgba(30, 20, 12, .6); border: 1px solid #4a3a2a; border-radius: 6px;
+}
+.recipe.disabled { opacity: .55; }
+.r-name { font-size: 16px; }
+.r-lvl { font-size: 11.5px; color: #8a6a4a; }
+.r-mats { font-size: 12.5px; color: #9a8a70; grid-column: 1 / -1; }
+.r-mats .ok { color: #6fd38f; }
+.r-mats .no { color: #e07060; }
+.craft-btn { grid-row: 1 / span 2; }
+.craft-note { font-style: italic; color: #8a6a4a; font-size: 13px; margin-top: 8px; text-align: center; }
+
+/* ---------- Диалог NPC ---------- */
+#dialog-frame {
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: min(660px, 94vw); z-index: 20; display: flex; gap: 14px;
+  background: linear-gradient(rgba(14, 12, 10, .96), rgba(20, 16, 12, .96));
+  border: 1px solid #6a5a3a; border-bottom: none; border-radius: 10px 10px 0 0;
+  padding: 16px 20px; box-shadow: 0 -8px 40px rgba(0, 0, 0, .6);
+}
+.dialog-portrait {
+  width: 64px; height: 64px; flex: none; border-radius: 8px 2px 8px 2px;
+  background: radial-gradient(circle at 40% 30%, #3a3020, #14100a);
+  border: 2px solid #8a6a3a; display: flex; align-items: center; justify-content: center;
+  font-size: 30px; color: var(--gold); font-family: 'Cormorant SC', serif;
+}
+.dialog-body { flex: 1; text-align: left; }
+.dialog-name { font-family: 'Cormorant SC', serif; font-size: 21px; color: var(--gold); letter-spacing: .08em; }
+.dialog-text { font-size: 15px; line-height: 1.5; margin: 6px 0 10px; min-height: 40px; color: #e4dcc4; }
+.dialog-options { display: flex; flex-direction: column; gap: 6px; }
+.dialog-btn { text-align: left; font-size: 14.5px; }
+.dialog-btn.primary { border-color: var(--gold); color: var(--gold); }
+
+/* ---------- Смерть / пауза ---------- */
+#death-overlay {
+  position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(60, 8, 8, .55), rgba(5, 2, 4, .92));
+  animation: fadein 1.2s;
+}
+@keyframes fadein { from { opacity: 0 } }
+.death-inner { text-align: center; }
+.death-inner h2 { font-family: 'Cormorant SC', serif; font-size: 46px; color: #d05040; letter-spacing: .2em; margin-bottom: 10px; }
+.death-inner p { color: #b8a898; margin-bottom: 22px; }
+#btn-respawn { font-size: 18px; padding: 10px 30px; border-color: #d05040; color: #ffb0a0; }
+
+#game-menu {
+  position: fixed; inset: 0; z-index: 35; display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 5, 10, .66); backdrop-filter: blur(2px);
+}
+.gm-box {
+  width: min(340px, 90vw); text-align: center; padding: 22px 24px;
+  background: var(--panel-bg); border: 1px solid var(--panel-br); border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .7);
+}
+.gm-box h3 { font-family: 'Cormorant SC', serif; letter-spacing: .2em; color: var(--gold); margin-bottom: 12px; }
+.gm-info { font-size: 13px; color: #8a94ac; margin-bottom: 14px; line-height: 1.5; }
+.gm-box button { display: block; width: 100%; margin-bottom: 8px; }
+
+/* мобильная адаптация */
+@media (max-width: 760px) {
+  #chatbox { width: 60vw; }
+  .inv-grid { grid-template-columns: repeat(3, 1fr); }
+  .inv-layout { grid-template-columns: 1fr; }
+  #quest-tracker { display: none; }
+  #minimap { width: 110px; }
+  #minimap-canvas { width: 104px; height: 104px; }
+}

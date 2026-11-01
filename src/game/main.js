@@ -127,7 +127,9 @@ export class Game {
     this.net.on.disconnect = () => this.ui.addChat('Связь с сервером потеряна. Продолжай в автономном режиме.', '#ff8a8a');
     const mode = await this.net.connect(charName);
     this.ui.addChat(mode === 'live' ? 'Соединение с миром установлено.' : 'Сервер недоступен — локальная симуляция Заставы активна.', '#8fd18f');
-    $('server-status').textContent = mode === 'live' ? 'онлайн' : 'симуляция';
+    const ss = $('server-status');
+    ss.textContent = mode === 'live' ? 'онлайн' : 'симуляция · оффлайн';
+    ss.classList.toggle('off', mode !== 'live');
 
     // Приветствие
     this.ui.addChat('Добро пожаловать на Ночную Заставу. Нажми [H] для справки.', '#ffd98a');
@@ -203,16 +205,24 @@ export class Game {
       if (k === 'q') this.castSlot(5);
       if (k === 'tab') { e.preventDefault(); this.cycleTarget(); }
       if (k === 'f') this.tryInteract();
-      if (k === 'h') this.ui.togglePanel('help');
       if (k === 'i') this.ui.togglePanel('inventory');
       if (k === 'c') this.ui.togglePanel('character');
-      if (k === 'k') this.ui.togglePanel('spells');
+      if (k === 'k') this.ui.togglePanel('character');   // лист персонажа включает и боевой набор
       if (k === 'j') this.ui.togglePanel('quests');
-      if (k === 'escape') { this.ui.closeDialog(); this.ui.hideForge(); this.target = null; }
+      if (k === 'b') this.ui.togglePanel('craft');
+      if (k === 'm') { e.preventDefault(); this.ui.openGameMenu(); }
+      if (k === 'escape') {
+        if (!this.ui.closeIfOpen) {}
+        if (!$('game-menu').classList.contains('hidden')) { /* UI сам закроет */ }
+        else { this.ui.closeDialog(); this.hideForgePanel(); this.target = null; }
+      }
     };
     const ku = (e) => { this.keys[e.code] = false; };
     window.addEventListener('keydown', kd);
     window.addEventListener('keyup', ku);
+
+    // кнопка «≡ Меню» работает даже когда игра ещё не в фокусе ввода
+    $('btn-menu-open').addEventListener('mousedown', (e) => e.stopPropagation());
 
     this.canvas.addEventListener('mousemove', (e) => {
       this.mouseNDC.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
