@@ -1,0 +1,70 @@
+btn-start enabled: True
+game screen not shown. loading-text: Застава не открылась: $ is not defined | err: Page.wait_for_selector: Timeout 25000ms exceeded.
+Call log:
+waiting for locator("#screen-game:not(.hidden)") to be visib
+ERR: ReferenceError: $ is not defined
+    at Game.bindInput (http://localhost:3000/src/game/main.js:305:5)
+    at Game._boot (http://localhost:3000/src/game/main.js:142:10)
+    at Game.start (http://localhost:3000/src/game/main.js:58:17)
+    at http://localhost:3000/src/main.js:285:23
+    at bootWith (http://localhost:3000/src/main.js:305:11)
+canvas shot failed, fallback fullpage: ElementHandle.screenshot: Timeout 15000ms exceeded.
+Call log:
+taking element scr
+Traceback (most recent call last):
+  File "/workspace/shots_locations.py", line 88, in main
+    await shot(page, "_fail_debug")
+  File "/workspace/shots_locations.py", line 34, in shot
+    await page.screenshot(path=path, timeout=25000, animations="disabled")
+  File "/usr/local/lib/python3.12/site-packages/playwright/async_api/_generated.py", line 9334, in screenshot
+    await self._impl_obj.screenshot(
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_page.py", line 734, in screenshot
+    encoded_binary = await self._channel.send("screenshot", params)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 59, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 514, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Page.screenshot: Timeout 25000ms exceeded.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/workspace/shots_locations.py", line 38, in main
+    async with async_playwright() as p:
+               ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/playwright/async_api/_context_manager.py", line 57, in __aexit__
+    await self._connection.stop_async()
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 284, in stop_async
+    await self._transport.wait_until_stopped()
+  File "/usr/local/lib/python3.12/site-packages/playwright/_impl/_transport.py", line 102, in wait_until_stopped
+    await self._stopped_future
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/shots_locations.py", line 125, in <module>
+    asyncio.run(main())
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt
+Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x7f2f434de020>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/asyncio/base_subprocess.py", line 126, in __del__
+  File "/usr/local/lib/python3.12/asyncio/base_subprocess.py", line 104, in close
+  File "/usr/local/lib/python3.12/asyncio/unix_events.py", line 568, in close
+  File "/usr/local/lib/python3.12/asyncio/unix_events.py", line 592, in _close
+  File "/usr/local/lib/python3.12/asyncio/base_events.py", line 799, in call_soon
+  File "/usr/local/lib/python3.12/asyncio/base_events.py", line 545, in _check_closed
+RuntimeError: Event loop is closed

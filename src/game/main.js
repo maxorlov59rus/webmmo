@@ -13,6 +13,7 @@ import { appearanceToMeshOpts } from '../data/appearance.js';
 import { UI } from '../ui/hud.js';
 import { ServerSync } from '../ui/auth.js';
 
+const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
 let mobSeq = 0;
 
@@ -38,7 +39,7 @@ export class Game {
 
   // --- Инициализация рендера -------------------------------------------------
   initRender() {
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.outputEncoding = THREE.sRGBEncoding;

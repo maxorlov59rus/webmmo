@@ -1,4 +1,1 @@
-*.log
-*.tmp
-dbg_out.txt
-loc_out.txt
+*.bundle

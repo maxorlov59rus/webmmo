@@ -248,3 +248,4 @@
 127.0.0.1 - - [01/Nov/2026 20:29:24] "GET /src/game/combat.js HTTP/1.1" 200 -
 127.0.0.1 - - [01/Nov/2026 20:29:24] "GET /src/game/net.js HTTP/1.1" 200 -
 127.0.0.1 - - [01/Nov/2026 20:29:24] "GET /src/ui/hud.js HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 20:56:19] "HEAD /nvr_game.bundle HTTP/1.1" 200 -
