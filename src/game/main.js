@@ -255,7 +255,8 @@ export class Game {
       isBoss: !!def.boss,
     };
     const meshOrParts = buildMobMesh(def.shape);
-    if (def.shape === 'wolf' || def.shape === 'shade' || def.shape === 'wraith' || def.shape === 'chimera' || def.shape === 'golem' || def.shape === 'colossus') {
+    // группы-«звери» (без скелета parts.root) трактуются как plain-меши
+    if (!meshOrParts || !meshOrParts.root) {
       m.mesh = meshOrParts; m.parts = null; m.anim = null;
     } else {
       m.parts = meshOrParts; m.mesh = meshOrParts.root; m.anim = new AnimController(meshOrParts);

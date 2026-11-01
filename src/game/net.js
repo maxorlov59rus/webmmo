@@ -54,8 +54,11 @@ export class NetClient {
         let msg; try { msg = JSON.parse(m.data); } catch (_) { return; }
         this._handle(msg);
       };
-      this.ws.onerror = () => { clearTimeout(to); if (this.mode !== 'live') { this._startLocalSim(selfName); resolve('offline'); } };
-      this.ws.onclose = () => { if (this.mode === 'live') this.emit('disconnect', {}); };
+      this.ws.onerror = () => { /* ждём onclose — так надёжнее на некоторых стеках */ };
+      this.ws.onclose = () => {
+        if (this.mode === 'live') { this.emit('disconnect', {}); }
+        else if (this.mode === 'connecting') { clearTimeout(to); this._startLocalSim(selfName); resolve('offline'); }
+      };
     });
   }
 
