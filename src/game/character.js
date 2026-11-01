@@ -25,7 +25,7 @@ export function defaultAccount(email, nick) {
 // Архетип по умолчанию для роли (если игрок не выбирал — «рекрут» своей гильдии)
 const DEFAULT_ARCH = { warden: 'steelbreaker', mage: 'chemist', scout: 'phosphor' };
 export function resolveArchetype(role, factionId, archetypeId) {
-  if (archetypeId && ARCHETYPES[archetypeId]) return archetypeId;
+  if (archetypeId && ARCHETYPES[archetypeId] && (!factionId || ARCHETYPES[archetypeId].faction === factionId)) return archetypeId;
   if (factionId) {
     const inFac = ARCHETYPE_KEYS.filter(k => ARCHETYPES[k].faction === factionId && ARCHETYPES[k].role === role);
     if (inFac.length) return inFac[0];

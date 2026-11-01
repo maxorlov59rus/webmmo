@@ -4,7 +4,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { buildWorld, heightAt, resolveCollision } from './world.js';
-import { buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimController, makeLabel, updateLabelTexture } from './models.js';
+import { buildHumanoid, buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimController, makeLabel, updateLabelTexture } from './models.js';
 import { CombatFX, rollPlayerDamage, rollMobDamage } from './combat.js';
 import { NetClient } from './net.js';
 import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, countItem, equip, unequip, useConsumable, knownAbilities, serialize, deserialize, loadAccount, saveAccount } from './character.js';
@@ -162,12 +162,31 @@ export class Game {
   }
 
   spawnInitialMobs() {
-    // Волки вокруг заставы
-    for (let i = 0; i < 10; i++) {
-      const a = rand(0, Math.PI * 2), r = rand(20, 40);
-      this.spawnMob('wolf', Math.cos(a) * r, Math.sin(a) * r);
+    // Спавн по локациям мира: spawns: [[typeId, count, respawnBonus], ...]
+    const placed = [];
+    for (const loc of locationsForWorld(this.worldId)) {
+      if (!loc.spawns || !loc.spawns.length) continue;
+      const cx = loc.anchor[0] * 10, cz = loc.anchor[1] * 10;
+      const rad = Math.max(6, (loc.radius || 20) * 0.55);
+      for (const [typeId, count, respawnTweak] of loc.spawns) {
+        if (!MOBS[typeId]) continue;
+        const n = Math.max(1, Math.round((count || 1) * this.mobDensity));
+        for (let i = 0; i < n; i++) {
+          const a = rand(0, Math.PI * 2), r = rand(loc.safe ? 4 : 6, rad);
+          const m = this.spawnMob(typeId, cx + Math.cos(a) * r, cz + Math.sin(a) * r);
+          if (respawnTweak) m.respawnDelay = Math.max(8, respawnTweak);
+          placed.push(m);
+        }
+      }
     }
-    // Скелеты у кострищ
+    // Страховая «популяция у заставы», если локаций со спавном нет
+    if (!placed.length) {
+      for (let i = 0; i < 10; i++) {
+        const a = rand(0, Math.PI * 2), r = rand(20, 40);
+        this.spawnMob('wolf', Math.cos(a) * r, Math.sin(a) * r);
+      }
+    }
+    // Скелеты у кострищ — классика Ночной Заставы
     for (const bf of this.world.bonfires) {
       const n = 2 + Math.floor(rand(0, 2));
       for (let i = 0; i < n; i++) {
@@ -175,14 +194,11 @@ export class Game {
         this.spawnMob('skeleton', px, pz);
       }
     }
-    // Тени в лесу
-    for (let i = 0; i < 6; i++) {
-      const a = rand(0, Math.PI * 2), r = rand(30, 55);
-      this.spawnMob('shade', Math.cos(a) * r, Math.sin(a) * r);
-    }
-    // Босс — Надзиратель Ночи у дальнего кургана
-    this.bossHome = { x: -42, z: -38 };
-    this.spawnMob('overseer', this.bossHome.x, this.bossHome.z);
+    // Босс локации Пепельного Поля (или дежильная точка, если её нет в мире)
+    const ash = locationById('ashfields');
+    const bossHome = ash ? { x: ash.anchor[0] * 10, z: ash.anchor[1] * 10 } : { x: -42, z: -38 };
+    this.bossHome = bossHome;
+    this.spawnMob('overseer', bossHome.x, bossHome.z);
   }
 
   spawnMob(typeId, x, z) {
