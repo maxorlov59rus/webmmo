@@ -1,0 +1,8 @@
+127.0.0.1 - - [01/Nov/2026 18:40:42] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 18:40:42] "GET /vendor/three.module.js HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 18:40:42] "GET /src/main.js HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 18:40:45] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 18:40:48] "GET /css/style.css HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 18:40:48] "GET /src/ui/hud.js HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 18:40:48] "GET /src/data/consts.js HTTP/1.1" 200 -
+127.0.0.1 - - [01/Nov/2026 18:41:27] "GET /src/game/main.js HTTP/1.1" 200 -

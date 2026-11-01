@@ -60,6 +60,7 @@ export class Game {
     return this._boot(savedChar.name, savedChar.classId, savedChar, opts);
   }
   async _boot(charName, classId, restored, opts = {}) {
+    this.mobDensity = 1;
     this.accountEmail = opts.accountEmail || null;
     const worldDef = WORLDS.find(w => w.id === (opts.worldId || (restored && restored.world)));
     this.worldId = worldDef ? worldDef.id : WORLDS[0].id;
@@ -563,7 +564,7 @@ export class Game {
   killMob(m) {
     m.dead = true; m.hp = 0;
     if (m.anim) m.anim.kill(); else m.mesh.userData.dying = true;
-    m.respawnT = this.time + m.def.respawn;
+    m.respawnT = this.time + (m.respawnDelay || m.def.respawn);
     this.fx.burst(m.pos, m.isBoss ? 0x8a4fd0 : 0x88aaff, 20, 4, 0.5, 0.9);
     // опыт/золото
     const xp = Math.max(1, Math.round(m.def.xp * THREE.MathUtils.clamp(1 - 0.12 * (this.char.level - m.level), 0.3, 1.2)));
