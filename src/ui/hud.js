@@ -1,30 +1,45 @@
 // ============================================================
 //  НОЧЬ ВОЕННОГО РЕМЕСЛА — HUD и панели (оверлеи поверх WebGL)
+//  Все ID согласованы с index.html; класс-скелет: warden/mage/scout,
+//  сверх этого — фракция и архетип из auth-потока.
 // ============================================================
 
-import { ITEMS, CLASSES, RARITY_NAMES, RARITY_COLORS, STATS, STAT_KEYS, ABILITIES } from '../data/consts.js';
+import { ITEMS, CLASSES, RARITY_NAMES, RARITY_COLORS, STATS, STAT_KEYS, FACTIONS, ARCHETYPES } from '../data/consts.js';
 import { xpForLevel } from '../game/character.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// иконки способностей по ключевым словам типа
+function abilityIcon(ab) {
+  if (ab.icon) return ab.icon;
+  const k = (ab.kind || '') + ' ' + (ab.id || '');
+  if (k.includes('heal') || k.includes('жар')) return '✚';
+  if (k.includes('shield') || k.includes('bastion')) return '⛨';
+  if (k.includes('bolt') || k.includes('spark') || k.includes('nova')) return '✦';
+  if (k.includes('cleave') || k.includes('whirl')) return '⚔';
+  if (k.includes('shot') || k.includes('arrow') || k.includes('volley')) return '➶';
+  if (k.includes('step') || k.includes('dash')) return '⇝';
+  if (k.includes('dot') || k.includes('poison') || k.includes('burn')) return '☠';
+  return '◆';
+}
+
 export class UI {
   constructor(game) {
     this.game = game;
     this.activePanel = null;
-    this.chatHistory = [];
+    this._slotSig = '';
     this._bind();
   }
 
   _bind() {
-    // переключение панелей
-    document.querySelectorAll('[data-panel]').forEach(btn => {
-      btn.addEventListener('click', () => this.togglePanel(btn.dataset.panel));
-    });
+    // кнопки панелей в меню паузы и хоткеи живут в game/main.js;
+    // здесь — закрытие панелей, чат, лут, меню игры.
     document.querySelectorAll('.panel-close').forEach(b => {
       b.addEventListener('click', () => this.closePanels());
     });
-    // чат
+
+    // чат: Enter открывает/отправляет
     const input = $('chat-input');
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -34,35 +49,68 @@ export class UI {
         input.value = '';
         input.blur();
       }
+      if (e.key === 'Escape') input.blur();
     });
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && document.activeElement !== input) {
+      if (e.key === 'Enter' && document.activeElement !== input && !this.game.dialogOpen) {
         e.preventDefault(); input.focus();
       }
-      if (e.key === 'Escape') { this.closePanels(); input.blur(); }
+      if (e.key === 'Escape') { this.closePanels(); this.closeGameMenu(); }
     });
-    // квест-трекер кликабелен для сворачивания
+
+    // трекер заданий: свернуть/развернуть
     $('quest-tracker').addEventListener('click', () => {
-      $('quest-tracker-body').classList.toggle('hidden');
+      $('qt-list').classList.toggle('hidden');
+    });
+
+    // лут: «Забрать всё» просто сворачивает попап (лут уже в сумке)
+    $('loot-take').addEventListener('click', () => $('loot-popup').classList.add('hidden'));
+
+    // меню игры (пауза)
+    $('btn-menu-open').addEventListener('click', () => this.openGameMenu());
+    $('btn-gm-close').addEventListener('click', () => this.closeGameMenu());
+    $('btn-gm-save').addEventListener('click', () => {
+      this.game.save();
+      this.toast('Ночь запомнила тебя.', '#8fd18f');
+    });
+    $('btn-gm-quit').addEventListener('click', () => {
+      if (window.__nvrQuitToMenu) window.__nvrQuitToMenu();
     });
   }
 
+  openGameMenu() {
+    this.game.paused = true;
+    const c = this.game.char;
+    const fac = c && c.faction ? FACTIONS[c.faction] : null;
+    const arch = c && c.archetype ? ARCHETYPES[c.archetype] : null;
+    $('gm-info').innerHTML = c ? `
+      <b style="color:var(--gold)">${esc(c.name)}</b> · ур. ${c.level}<br>
+      ${fac ? `<span style="color:${fac.color}">${fac.icon} ${esc(fac.name)}</span><br>` : ''}
+      ${arch ? esc(arch.name) + '<br>' : ''}
+      мир: ${esc((this.game.worldId || '').toUpperCase())} · сохранение автоматическое` : '';
+    $('game-menu').classList.remove('hidden');
+  }
+  closeGameMenu() {
+    $('game-menu').classList.add('hidden');
+    this.game.paused = false;
+  }
+
+  // --- Панели -----------------------------------------------------------------
   togglePanel(name) {
-    const panels = ['inventory', 'character', 'spells', 'quests', 'help'];
     if (this.activePanel === name) { this.closePanels(); return; }
     this.closePanels();
     this.activePanel = name;
     const el = $('panel-' + name);
-    if (el) { el.classList.add('open'); this.refreshPanel(name); }
+    if (el) { el.classList.remove('hidden'); this.refreshPanel(name); }
   }
   closePanels() {
     this.activePanel = null;
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('open'));
+    document.querySelectorAll('[data-panel]').forEach(p => p.classList.add('hidden'));
   }
   refreshPanel(name) {
     if (name === 'inventory') this.renderInventory();
     if (name === 'character') this.renderCharacter();
-    if (name === 'spells') this.renderSpells();
+    if (name === 'craft') this.renderCraft();
     if (name === 'quests') this.renderQuests();
   }
 
@@ -70,81 +118,98 @@ export class UI {
   updateHud() {
     const g = this.game, c = g.char;
     if (!c) return;
-    $('hp-fill').style.width = (100 * c.hp / c.stats.maxHp) + '%';
-    $('hp-text').textContent = `${Math.ceil(c.hp)}/${c.stats.maxHp}`;
-    $('mp-fill').style.width = (100 * c.mp / c.stats.maxMp) + '%';
-    $('mp-text').textContent = `${Math.floor(c.mp)}/${c.stats.maxMp}`;
-    $('xp-fill').style.width = (100 * c.xp / xpForLevel(c.level)) + '%';
-    $('level-badge').textContent = c.level;
-    $('char-name-hud').textContent = c.name;
-    $('gold-count').textContent = c.gold;
-    // портрет-класс
-    const cls = CLASSES[c.classId];
-    $('portrait').style.borderColor = cls.color;
-    // бафф щита
-    $('buff-shield').classList.toggle('hidden', !c.buffs.some(b => b.type === 'shield'));
+    $('bar-hp').style.width = (100 * c.hp / c.stats.maxHp) + '%';
+    $('txt-hp').textContent = `${Math.ceil(c.hp)}/${c.stats.maxHp}`;
+    $('bar-mp').style.width = (100 * c.mp / c.stats.maxMp) + '%';
+    $('txt-mp').textContent = `${Math.floor(c.mp)}/${c.stats.maxMp}`;
+    $('bar-xp').style.width = (100 * c.xp / xpForLevel(c.level)) + '%';
+    $('txt-xp').textContent = `${c.xp}/${xpForLevel(c.level)}`;
+    $('hud-name').textContent = c.name;
+    $('hud-level').textContent = c.level;
+    const fac = c.faction ? FACTIONS[c.faction] : null;
+    const arch = c.archetype ? ARCHETYPES[c.archetype] : null;
+    $('hud-faction').textContent = fac ? `· ${fac.icon} ${fac.short}${arch ? ' · ' + arch.name : ''}` : '';
+    $('portrait').textContent = (c.name || '?')[0].toUpperCase();
+    $('portrait').style.borderColor = CLASSES[c.classId].color;
+
     // цель
     const t = g.target;
     if (t && !t.dead) {
       $('target-frame').classList.remove('hidden');
       $('target-name').textContent = `${t.name} · ур.${t.level}`;
-      $('target-hp-fill').style.width = (100 * t.hp / t.maxHp) + '%';
+      $('bar-target').style.width = (100 * Math.max(0, t.hp) / t.maxHp) + '%';
     } else {
       $('target-frame').classList.add('hidden');
     }
-    // мини-статы на рейд-баре кузницы если рядом
-    const nearForge = Math.hypot(c.pos.x - 6, c.pos.z - (-4)) < 5;
-    $('forge-hint').classList.toggle('hidden', !nearForge);
+
+    // подсказка взаимодействия [F]
     const interact = g.nearNpc || g.nearInteract;
-    $('interact-hint').classList.toggle('hidden', !interact);
-    if (interact) $('interact-hint').textContent = `[F] ${interact.label}`;
+    let hint = $('interact-hint');
+    if (interact) {
+      if (!hint) {
+        hint = document.createElement('div');
+        hint.id = 'interact-hint';
+        hint.className = 'hint-pill';
+        $('screen-game').appendChild(hint);
+      }
+      hint.textContent = `[F] ${interact.label}`;
+    } else if (hint) hint.remove();
+
+    // миникарта
+    this.drawMinimap();
   }
 
-  // --- Экран создания персонажа --------------------------------------------------
-  showCreateScreen() {
-    $('screen-create').classList.remove('hidden');
-    $('screen-game').classList.add('hidden');
-    this._classCards();
-  }
-  hideCreateScreen() {
-    $('screen-create').classList.add('hidden');
-    $('screen-game').classList.remove('hidden');
-  }
-  _classCards() {
-    const wrap = $('class-cards');
-    wrap.innerHTML = '';
-    for (const cls of Object.values(CLASSES)) {
-      const card = document.createElement('div');
-      card.className = 'class-card'; card.dataset.cls = cls.id;
-      card.style.setProperty('--cls-color', cls.color);
-      card.innerHTML = `
-        <h3>${esc(cls.name)}</h3>
-        <div class="tag">${esc(cls.tag)}</div>
-        <p>${esc(cls.desc)}</p>
-        <ul class="statlist">
-          ${STAT_KEYS.map(k => `<li><span>${STATS[k].short}</span><b>${cls.base[k]}</b></li>`).join('')}
-          <li><span>HP</span><b>${cls.base.hp}</b></li>
-          <li><span>MP</span><b>${cls.base.mp}</b></li>
-        </ul>`;
-      card.addEventListener('click', () => {
-        document.querySelectorAll('.class-card').forEach(x => x.classList.remove('selected'));
-        card.classList.add('selected');
-        this.selectedClass = cls.id;
-        window.__selectedClass = cls.id;
-        $('btn-start').disabled = !$('hero-name').value.trim() || !this.selectedClass;
-      });
-      wrap.appendChild(card);
+  drawMinimap() {
+    const cv = $('minimap-canvas');
+    if (!cv || !this.game.char) return;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height, R = 46; // радиус мира в метрах
+    const c = this.game.char, g = this.game;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(10,14,22,0.9)';
+    ctx.fillRect(0, 0, W, H);
+    const px = (x) => W / 2 + (x - c.pos.x) / R * (W / 2);
+    const pz = (z) => H / 2 + (z - c.pos.z) / R * (H / 2);
+    // кузница
+    ctx.fillStyle = '#ff8a3c';
+    ctx.beginPath(); ctx.arc(px(6), pz(-4), 3.5, 0, 7); ctx.fill();
+    // NPC — жёлтым
+    for (const n of g.npcs) {
+      ctx.fillStyle = '#ffd24a';
+      ctx.fillRect(px(n.parts.root.position.x) - 2, pz(n.parts.root.position.z) - 2, 4, 4);
     }
-    $('hero-name').addEventListener('input', () => {
-      $('btn-start').disabled = !$('hero-name').value.trim() || !this.selectedClass;
-    });
+    // мобы — красным, босс крупнее
+    for (const m of g.mobs) {
+      if (m.dead || !m.mesh) continue;
+      ctx.fillStyle = m.def.boss ? '#c07ff0' : '#d05040';
+      const s = m.def.boss ? 5 : 2.5;
+      ctx.fillRect(px(m.pos.x) - s / 2, pz(m.pos.z) - s / 2, s, s);
+    }
+    // другие игроки — голубым
+    for (const rp of g.remotePlayers.values()) {
+      if (!rp.mesh) continue;
+      ctx.fillStyle = '#7aa0ff';
+      ctx.fillRect(px(rp.mesh.position.x) - 2, pz(rp.mesh.position.z) - 2, 4, 4);
+    }
+    // игрок — белая стрелка
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-(g.playerParts ? g.playerParts.root.rotation.y : 0));
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(3.5, 4); ctx.lineTo(-3.5, 4); ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
 
   // --- Инвентарь -----------------------------------------------------------------
   renderInventory() {
     const c = this.game.char;
-    const eq = $('equip-slots');
-    eq.innerHTML = '';
+    const body = $('inv-body');
+    body.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'inv-layout';
+    // экипировка
+    const eq = document.createElement('div');
+    eq.className = 'equip-col';
     for (const slot of ['weapon', 'body', 'trinket']) {
       const id = c.equipment[slot];
       const def = id ? ITEMS[id] : null;
@@ -152,37 +217,58 @@ export class UI {
       d.className = 'equip-slot';
       d.innerHTML = `<div class="slot-label">${slotName(slot)}</div>` +
         (def ? `<div class="item-name" style="color:${RARITY_COLORS[def.rarity]}">${esc(def.name)}</div>` : '<div class="slot-empty">— пусто —</div>');
-      if (def) d.addEventListener('click', () => { window.__unequipSlot(slot); });
+      if (def) d.title = itemTooltip(def) + '\n\nКлик: снять';
+      if (def) d.addEventListener('click', () => {
+        import('../game/character.js').then(({ unequip }) => { unequip(c, slot); this.renderInventory(); this.updateHud(); });
+      });
       eq.appendChild(d);
     }
-    const inv = $('inv-grid');
-    inv.innerHTML = '';
+    wrap.appendChild(eq);
+    // сумка
+    const invWrap = document.createElement('div');
+    const grid = document.createElement('div');
+    grid.className = 'inv-grid';
+    if (!c.inventory.length) grid.innerHTML = '<div class="inv-empty">Сумка пуста. Химеры щедрее на трофеи, чем казна.</div>';
     c.inventory.forEach((s, i) => {
       const def = ITEMS[s.id]; if (!def) return;
       const d = document.createElement('div');
       d.className = 'inv-item';
       d.style.borderColor = RARITY_COLORS[def.rarity];
-      d.innerHTML = `<span class="iname" style="color:${RARITY_COLORS[def.rarity]}">${esc(def.name)}</span>` +
+      d.innerHTML = `<span class="item-name" style="color:${RARITY_COLORS[def.rarity]}">${esc(def.name)}</span>` +
         (s.qty > 1 ? `<span class="iqty">×${s.qty}</span>` : '');
-      d.title = itemTooltip(def);
-      d.addEventListener('dblclick', () => this.game.useOrEquipFromInventory(i));
+      d.title = itemTooltip(def) + '\n\nКлик: использовать/надеть';
       d.addEventListener('click', () => this.game.useOrEquipFromInventory(i));
-      inv.appendChild(d);
+      grid.appendChild(d);
     });
-    $('inv-gold').textContent = c.gold + ' зол.';
+    invWrap.appendChild(grid);
+    const foot = document.createElement('div');
+    foot.className = 'inv-foot';
+    foot.textContent = `Монеты: ${c.gold} зол.`;
+    invWrap.appendChild(foot);
+    wrap.appendChild(invWrap);
+    body.appendChild(wrap);
   }
 
   // --- Персонаж -------------------------------------------------------------------
   renderCharacter() {
     const c = this.game.char;
     const cls = CLASSES[c.classId];
-    $('char-detail').innerHTML = `
+    const fac = c.faction ? FACTIONS[c.faction] : null;
+    const arch = c.archetype ? ARCHETYPES[c.archetype] : null;
+    const body = $('char-body');
+    body.innerHTML = '';
+
+    const head = document.createElement('div');
+    head.id = 'char-detail';
+    head.innerHTML = `
       <div class="cd-name" style="color:${cls.color}">${esc(c.name)}</div>
-      <div class="cd-sub">${esc(cls.name)} · уровень ${c.level}</div>
+      <div class="cd-sub">${arch ? esc(arch.name) : esc(cls.name)} · ${fac ? esc(fac.name) : 'без знамени'} · ур. ${c.level}</div>
       <div class="cd-xp">Опыт: ${c.xp} / ${xpForLevel(c.level)}</div>
       <div class="cd-points ${c.statPoints ? '' : 'dim'}">Свободных очков: <b>${c.statPoints}</b></div>`;
-    const list = $('stat-list');
-    list.innerHTML = '';
+    body.appendChild(head);
+
+    const list = document.createElement('div');
+    list.id = 'stat-list';
     for (const k of STAT_KEYS) {
       const row = document.createElement('div');
       row.className = 'stat-row';
@@ -195,78 +281,126 @@ export class UI {
       row.title = STATS[k].desc;
       list.appendChild(row);
     }
+    body.appendChild(list);
+
     const s = c.stats;
-    $('derived-stats').innerHTML = `
+    const der = document.createElement('div');
+    der.className = 'derived';
+    der.innerHTML = `
       <div>Урон: ${(s.dmgBase * 0.85 | 0)}–${(s.dmgBase * 1.15 | 0)}</div>
       <div>Магия: ${s.magBase | 0}</div>
-      <div>Крит: ${s.crit.toFixed(0)}%</div>
-      <div>Блок: ${Math.min(40, s.block + s.passives.blockBonus).toFixed(0)}%</div>
-      <div>Броня: ${s.armor[0]}–${s.armor[1]}</div>
-      <div>Скорость: ${s.moveSpeed.toFixed(1)}</div>`;
-  }
+      <div>Крит: ${(s.crit || 0).toFixed(0)}%</div>
+      <div>Блок: ${Math.min(40, (s.block || 0) + ((s.passives && s.passives.blockBonus) || 0)).toFixed(0)}%</div>
+      <div>Броня: ${s.armor ? s.armor[0] : 0}–${s.armor ? s.armor[1] : 0}</div>
+      <div>Скорость: ${(s.moveSpeed || 5).toFixed(1)}</div>`;
+    body.appendChild(der);
 
-  // --- Способности ------------------------------------------------------------------
-  renderSpells() {
-    const c = this.game.char;
-    const list = $('spell-list');
-    list.innerHTML = '';
-    const acts = this.game.knownAbilities().filter(a => a.kind === 'active');
+    // способности архетипа/класса
+    const spTitle = document.createElement('div');
+    spTitle.className = 'sub-title'; spTitle.textContent = 'Боевой набор';
+    body.appendChild(spTitle);
+    const spList = document.createElement('div');
+    spList.id = 'spell-list';
     let hi = 0;
     for (const ab of this.game.knownAbilities()) {
-      const hotkey = ab.kind === 'active' ? (hi < 5 ? ++hi : 'Q') : '';
-      if (ab.kind === 'active' && hi > 5) hotkey; // noop
+      const hotkey = ab.kind === 'active' ? String(++hi <= 5 ? hi : 'Q') : '✧';
       const d = document.createElement('div');
       d.className = 'spell-row' + (ab.kind === 'passive' ? ' passive' : '');
       d.innerHTML = `<div class="spell-key">${hotkey}</div>
-        <div class="spell-main"><b>${esc(ab.name)}</b> <span class="spell-lvl">ур.${ab.level}</span>
+        <div class="spell-main"><b>${esc(ab.name)}</b> <span class="spell-lvl">ур.${ab.level || 1}</span>
         <div class="spell-desc">${esc(ab.desc)}</div></div>
-        <div class="spell-cost">${ab.cost.mp ? ab.cost.mp + ' маны' : '—'}</div>`;
-      list.appendChild(d);
+        <div class="spell-cost">${ab.cost && ab.cost.mp ? ab.cost.mp + ' маны' : '—'}</div>`;
+      spList.appendChild(d);
     }
+    body.appendChild(spList);
   }
 
-  // --- Квесты ------------------------------------------------------------------------
+  // --- Квесты ----------------------------------------------------------------------
   renderQuests() {
     const c = this.game.char;
-    // трекер
-    const tr = $('quest-log');
-    tr.innerHTML = '';
-    for (const q of c.quests) {
-      const def = this.game.questDef(q.id);
-      if (!def) continue;
-      const step = def.steps[q.step];
-      const div = document.createElement('div');
-      div.className = 'q-entry';
-      div.innerHTML = `<div class="q-name" style="color:${def.color}">✦ ${esc(def.name)}</div>
-        <div class="q-step">${esc(step.text)} (${q.progress}/${step.count || 1})</div>`;
-      tr.appendChild(div);
+    // трекер (виден всегда)
+    const tr = $('qt-list');
+    if (tr) {
+      tr.innerHTML = '';
+      for (const q of c.quests) {
+        const def = this.game.questDef(q.id);
+        if (!def) continue;
+        const step = def.steps[q.step];
+        if (!step) continue;
+        const div = document.createElement('div');
+        div.className = 'q-entry';
+        div.innerHTML = `<div class="q-name" style="color:${def.color}">✦ ${esc(def.name)}</div>
+          <div class="q-step">${esc(step.text)} (${q.progress}/${step.count || 1})</div>`;
+        tr.appendChild(div);
+      }
+      if (!c.quests.length) tr.innerHTML = '<div class="q-none">Нет активных заданий. Поговори с жителями заставы [F].</div>';
     }
-    if (!c.quests.length) tr.innerHTML = '<div class="q-none">Нет активных заданий. Поговори с жителями заставы [F].</div>';
-    // панель
+    // панель журнала
     if (this.activePanel === 'quests') {
-      const pn = $('panel-quests-body');
+      const pn = $('quests-body');
       pn.innerHTML = '';
       for (const q of c.quests) {
         const def = this.game.questDef(q.id);
+        if (!def) continue;
         const div = document.createElement('div');
         div.className = 'q-full';
         div.innerHTML = `<b style="color:${def.color}">${esc(def.name)}</b><br>
-          ${def.steps.map((st, i) => `<div class="${i < q.step ? 'done' : ''}">${i <= q.step ? '☐ ' + esc(st.text) + (i === q.step ? ` (${q.progress}/${st.count || 1})` : '') : '✔ ' + esc(st.text)}</div>`).join('')}
-          <div class="q-reward">Награда: ${def.reward.xp} опыта, ${def.reward.gold} зол.${def.reward.items?.length ? ', ' + def.reward.items.map(i => esc(ITEMS[i]?.name || i)).join(', ') : ''}</div>`;
+          ${def.steps.map((st, i) => `<div class="${i < q.step ? 'done' : ''}">${i < q.step ? '✔ ' + esc(st.text) : i === q.step ? '☐ ' + esc(st.text) + ` (${q.progress}/${st.count || 1})` : '· ' + esc(st.text)}</div>`).join('')}
+          <div class="q-reward">Награда: ${def.reward.xp} опыта, ${def.reward.gold} зол.${def.reward.items && def.reward.items.length ? ', ' + def.reward.items.map(i => esc((ITEMS[i] || {}).name || i)).join(', ') : ''}</div>`;
         pn.appendChild(div);
       }
       if (!pn.children.length) pn.innerHTML = '<p>Активных заданий нет.</p>';
     }
   }
 
+  // --- Крафт (панель + тот же рендер, что был у кузницы) ----------------------------
+  renderCraft() {
+    const g = this.game, c = g.char;
+    const body = $('craft-body');
+    body.innerHTML = '';
+    const mats = document.createElement('div');
+    mats.className = 'craft-mats';
+    mats.innerHTML = ['iron_ore', 'moonstone'].map(id =>
+      `<span>${esc(ITEMS[id].name)}: <b>${g.countItem(id)}</b></span>`).join(' ');
+    body.appendChild(mats);
+
+    const list = document.createElement('div');
+    list.id = 'recipe-list';
+    let any = false;
+    for (const r of g.recipesAvailable()) {
+      any = true;
+      const out = ITEMS[r.out];
+      const can = g.canCraft(r);
+      const d = document.createElement('div');
+      d.className = 'recipe' + (can ? '' : ' disabled');
+      d.innerHTML = `<div><div class="r-name" style="color:${RARITY_COLORS[out.rarity]}">${esc(out.name)}</div>
+          <div class="r-lvl">требуется ур. ${r.reqLevel}</div></div>
+        <div class="r-mats">${Object.entries(r.mats).map(([m, n]) => {
+          const have = g.countItem(m);
+          return `<span class="${have >= n ? 'ok' : 'no'}">${esc(ITEMS[m].name)} ${have}/${n}</span>`;
+        }).join(' · ')}</div>
+        <button class="craft-btn" ${can ? '' : 'disabled'}>Выковать</button>`;
+      d.querySelector('.craft-btn').addEventListener('click', () => { g.startCraft(r); this.renderCraft(); });
+      list.appendChild(d);
+    }
+    if (!any) list.innerHTML = '<p>Горн Дормира молчит: заданий кузнеца пока нет.</p>';
+    body.appendChild(list);
+    const note = document.createElement('div');
+    note.className = 'craft-note';
+    note.textContent = 'Руду и лунный камень носят курганы и химеры. Горн заставы (F у наковальни) кует быстрее рук.';
+    body.appendChild(note);
+  }
+  showForge() { this.togglePanel('craft'); }
+  hideForge() { if (this.activePanel === 'craft') this.closePanels(); }
+
   // --- Диалог NPC ---------------------------------------------------------------------
   showDialog(npc, options) {
-    const d = $('dialog');
+    const d = $('dialog-frame');
     d.classList.remove('hidden');
-    $('dialog-npc-name').textContent = npc.name;
-    $('dialog-role').textContent = npc.role || '';
-    $('dialog-text').textContent = options.intro || '';
-    const box = $('dialog-options');
+    $('dlg-portrait').textContent = (npc.name || '?')[0];
+    $('dlg-name').textContent = npc.name + (npc.role ? ' · ' + npc.role : '');
+    $('dlg-text').textContent = options.intro || '';
+    const box = $('dlg-options');
     box.innerHTML = '';
     (options.actions || []).forEach(a => {
       const b = document.createElement('button');
@@ -281,35 +415,7 @@ export class UI {
     close.addEventListener('click', () => this.closeDialog());
     box.appendChild(close);
   }
-  closeDialog() { $('dialog').classList.add('hidden'); this.game.dialogOpen = false; }
-
-  // --- Кузница -------------------------------------------------------------------------
-  showForge() {
-    $('forge').classList.remove('hidden');
-    this.renderForge();
-  }
-  hideForge() { $('forge').classList.add('hidden'); }
-  renderForge() {
-    const g = this.game, c = g.char;
-    const list = $('recipe-list');
-    list.innerHTML = '';
-    for (const r of g.recipesAvailable()) {
-      const out = ITEMS[r.out];
-      const can = g.canCraft(r);
-      const d = document.createElement('div');
-      d.className = 'recipe' + (can ? '' : ' disabled');
-      d.innerHTML = `<div class="r-name" style="color:${RARITY_COLORS[out.rarity]}">${esc(out.name)}</div>
-        <div class="r-mats">${Object.entries(r.mats).map(([m, n]) => {
-          const have = g.countItem(m);
-          return `<span class="${have >= n ? 'ok' : 'no'}">${esc(ITEMS[m].name)} ${have}/${n}</span>`;
-        }).join(' · ')}</div>
-        <button class="craft-btn" ${can ? '' : 'disabled'}>Выковать</button>`;
-      d.querySelector('.craft-btn').addEventListener('click', () => g.startCraft(r));
-      list.appendChild(d);
-    }
-    $('forge-mats').innerHTML = ['iron_ore', 'moonstone'].map(id =>
-      `<span>${esc(ITEMS[id].name)}: <b>${g.countItem(id)}</b></span>`).join(' ');
-  }
+  closeDialog() { $('dialog-frame').classList.add('hidden'); this.game.dialogOpen = false; }
 
   // --- Чат ------------------------------------------------------------------------------
   addChat(text, colorCss, prefix) {
@@ -330,24 +436,33 @@ export class UI {
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 600); }, 2600);
   }
   lootPopup(items) {
+    $('loot-items').innerHTML = items.length
+      ? items.map(it => `<div class="loot-line" style="color:${RARITY_COLORS[it.rarity || 0]}">${esc(it.name)}</div>`).join('')
+      : '<div class="loot-line dim">пусто</div>';
     const lp = $('loot-popup');
-    lp.innerHTML = items.map(it => `<div class="loot-line" style="color:${RARITY_COLORS[it.rarity]}">${esc(it.name)}</div>`).join('') || '<div class="loot-line dim">пусто</div>';
-    lp.classList.add('show');
+    lp.classList.remove('hidden');
     clearTimeout(this._lootT);
-    this._lootT = setTimeout(() => lp.classList.remove('show'), 1800);
+    this._lootT = setTimeout(() => lp.classList.add('hidden'), 2400);
   }
 
+  // --- Экшен-бар -------------------------------------------------------------------------
   updateCooldownBar() {
-    const bar = $('action-bar');
+    const bar = $('skill-slots');
     const g = this.game;
     if (!g.char) return;
     const acts = g.knownAbilities().filter(a => a.kind === 'active').slice(0, 6);
-    if (bar.childElementCount !== acts.length) {
+    const sig = acts.map(a => a.id).join('|');
+    if (sig !== this._slotSig) {
+      this._slotSig = sig;
       bar.innerHTML = '';
       acts.forEach((ab, i) => {
         const cell = document.createElement('div');
-        cell.className = 'ability-cell';
-        cell.innerHTML = `<span class="ab-key">${i + 1 <= 5 ? i + 1 : 'Q'}</span><span class="ab-name">${esc(ab.name)}</span><div class="ab-cd"></div>`;
+        cell.className = 'skill-slot';
+        cell.innerHTML = `<span class="ss-key">${i + 1 <= 5 ? i + 1 : 'Q'}</span>
+          <span class="ss-icon">${abilityIcon(ab)}</span>
+          <span class="ss-name">${esc(ab.name)}</span>
+          ${ab.cost && ab.cost.mp ? `<span class="ss-cost">${ab.cost.mp}</span>` : ''}
+          <div class="ss-cd"></div>`;
         cell.title = ab.desc;
         cell.addEventListener('click', () => g.castAbility(ab.id));
         bar.appendChild(cell);
@@ -355,13 +470,14 @@ export class UI {
     }
     acts.forEach((ab, i) => {
       const cell = bar.children[i];
-      const cdEl = cell.querySelector('.ab-cd');
+      const cdEl = cell.querySelector('.ss-cd');
       const ready = g.isAbilityReady(ab.id);
-      cell.classList.toggle('ready', ready);
+      const manaOk = g.char.mp >= ((ab.cost && ab.cost.mp) || 0);
+      cell.classList.toggle('ready', ready && manaOk);
+      cell.classList.toggle('nomana', !manaOk);
       if (!ready) {
-        const total = ab.cd;
         const left = g.cooldownLeft(ab.id);
-        cdEl.style.height = (100 * left / total) + '%';
+        cdEl.style.height = (100 * left / (ab.cd || 1)) + '%';
         cdEl.textContent = left.toFixed(1);
       } else { cdEl.style.height = '0%'; cdEl.textContent = ''; }
     });
