@@ -11,6 +11,7 @@ import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, cou
 import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT, LOCATIONS, LOCATION_KEYS, locationById, locationAt, locationsForWorld } from '../data/consts.js';
 import { appearanceToMeshOpts } from '../data/appearance.js';
 import { UI } from '../ui/hud.js';
+import { ServerSync } from '../ui/auth.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 let mobSeq = 0;
@@ -955,6 +956,11 @@ export class Game {
         if (acc) { acc.characters[this.worldId] = json; acc.lastWorld = this.worldId; saveAccount(acc); }
       } catch (_) {}
     }
+    // синхронизация с серверной БД (если игра запущена с ?api=)
+    if (ServerSync.enabled && !this._syncBusy) {
+      this._syncBusy = true;
+      ServerSync.upload(this.worldId, json).then((ok) => { this._lastSyncOk = ok; }).finally(() => { this._syncBusy = false; });
+    }
   }
   saveSoon() { clearTimeout(this._saveT); this._saveT = setTimeout(() => this.save(), 1500); }
   static loadSaved() { return deserialize(localStorage.getItem('nvr_save')); }
@@ -969,5 +975,22 @@ function lerpAngle(a, b, t) {
 }
 function parseServerUrl() {
   const p = new URLSearchParams(location.search);
-  return p.get('server');
+  if (p.get('server')) return p.get('server');
+  // авто-детект: если страница открыта с игрового сервера (Express отдаёт клиент) — идём на его /ws
+  if (!p.get('api') && /^(127\.0\.0\.1|localhost)$/.test(location.hostname) && location.protocol.startsWith('http')) {
+    try {
+      const r = await_probe();
+      if (r) return r;
+    } catch (_) {}
+  }
+  return null;
+}
+// синхронная проверка наличия WS-эндпоинта невозможна — вместо этого пробуем подключиться к тому же хосту,
+// если HTTP-запрос /api/ping успешен (делаем это один раз при старте)
+let _autoWs = undefined;
+function await_probe() {
+  if (_autoWs !== undefined) return _autoWs;
+  // лениво: предполагаем ws://<host>:<port>/ws и даём NetClient шанс (он откатится в симуляцию при ошибке)
+  _autoWs = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  return _autoWs;
 }
