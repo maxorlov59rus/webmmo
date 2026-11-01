@@ -246,7 +246,7 @@ export function buildMobMesh(shape, colorHex) {
   }
   if (shape === 'skeleton') {
     const h = buildHumanoid({ skin: 0xd8d2c4, cloth: 0x5a5648, accent: 0x8a7a50, metal: 0xb0aca0, weaponType: 'sword', scale: 0.95 });
-    h.torso.children[0].material = M(0xcfc8b8); // рёбра светлее
+    h.torso.children[1].material = M(0xcfc8b8); // рёбра светлее
     return h;
   }
   if (shape === 'shade') {
