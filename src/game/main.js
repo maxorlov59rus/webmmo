@@ -8,7 +8,8 @@ import { buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimController, makeLabel,
 import { CombatFX, rollPlayerDamage, rollMobDamage } from './combat.js';
 import { NetClient } from './net.js';
 import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, countItem, equip, unequip, useConsumable, knownAbilities, serialize, deserialize, loadAccount, saveAccount } from './character.js';
-import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT } from '../data/consts.js';
+import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT, LOCATIONS, LOCATION_KEYS, locationById, locationAt, locationsForWorld } from '../data/consts.js';
+import { appearanceToMeshOpts } from '../data/appearance.js';
 import { UI } from '../ui/hud.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -77,10 +78,20 @@ export class Game {
     this.ui = new UI(this);
     window.__unequipSlot = (slot) => { unequip(this.char, slot); this.ui.renderInventory(); };
 
-    // месть игрока в мире
+    // месть игрока в мире: сохранённая позиция или точка возрождения заставы
     const sp = this.world.spawnPoint;
-    this.char.pos = new THREE.Vector3(sp.x, heightAt(sp.x, sp.z, this.seed), sp.z);
-    this.playerParts = buildPlayerMesh(classId, CLASSES[classId].color);
+    const savedPos = this.char.pos && Math.abs(this.char.pos.x) <= 70 && Math.abs(this.char.pos.z) <= 70 ? this.char.pos : sp;
+    this.char.pos = new THREE.Vector3(savedPos.x, heightAt(savedPos.x, savedPos.z, this.seed), savedPos.z);
+    const meshOpts = appearanceToMeshOpts(
+      this.char.appearance, CLASSES[classId].color,
+      classId === 'mage' ? 'staff' : classId === 'scout' ? 'spear' : 'sword',
+      this.char.faction);
+    this.playerParts = buildHumanoid(meshOpts);
+    // подсветка класса под ногами (как у旧 buildPlayerMesh)
+    const clsRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 24),
+      new THREE.MeshBasicMaterial({ color: parseInt(CLASSES[classId].color.slice(1), 16), transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
+    clsRing.rotation.x = -Math.PI / 2; clsRing.position.y = 0.02;
+    this.playerParts.root.add(clsRing);
     this.playerAnim = new AnimController(this.playerParts);
     this.playerParts.root.position.copy(this.char.pos);
     this.scene.add(this.playerParts.root);
@@ -88,27 +99,37 @@ export class Game {
     this.playerLabel.position.y = 2.5;
     this.playerParts.root.add(this.playerLabel);
 
-    // NPC
-    for (const npc of Object.values(NPCS)) {
-      const parts = buildNpcMesh(npc);
-      const y = heightAt(npc.x, npc.z, this.seed);
-      parts.root.position.set(npc.x, y, npc.z);
-      parts.root.rotation.y = Math.atan2(-npc.x, -npc.z);
-      const anim = new AnimController(parts);
-      const label = makeLabel(npc.name, npc.role.split('·')[0].trim(), '#ffe9b8');
-      label.position.y = 2.6; parts.root.add(label);
-      // маркер задания (! или ?)
-      const hasQ = (npc.quests || []).length > 0;
-      if (hasQ) {
-        const mk = makeLabel('!', '', '#ffd24a');
-        mk.position.y = 3.4; mk.scale.set(1.2, 0.4, 1);
-        parts.root.add(mk);
+    // NPC — только жители локаций этого мира
+    this.npcDefs = [];
+    for (const loc of locationsForWorld(this.worldId)) {
+      for (const nid of loc.npcs || []) {
+        const npc = NPCS[nid];
+        if (!npc || this.npcDefs.includes(npc)) continue;
+        this.npcDefs.push(npc);
+        const L = LOCATIONS[loc.id];
+        const bx = L.anchor[0] * 10, bz = L.anchor[1] * 10;
+        npc.x = bx + (npc.offset?.[0] || 0);
+        npc.z = bz + (npc.offset?.[1] || 0);
+        const parts = buildNpcMesh(npc);
+        const y = heightAt(npc.x, npc.z, this.seed);
+        parts.root.position.set(npc.x, y, npc.z);
+        parts.root.rotation.y = Math.atan2(-npc.x, -npc.z);
+        const anim = new AnimController(parts);
+        const label = makeLabel(npc.name, npc.role.split('·')[0].trim(), '#ffe9b8');
+        label.position.y = 2.6; parts.root.add(label);
+        // маркер задания (! или ?)
+        const hasQ = (npc.quests || []).length > 0;
+        if (hasQ) {
+          const mk = makeLabel('!', '', '#ffd24a');
+          mk.position.y = 3.4; mk.scale.set(1.2, 0.4, 1);
+          parts.root.add(mk);
+        }
+        this.scene.add(parts.root);
+        this.npcs.push({ def: npc, parts, anim, label });
       }
-      this.scene.add(parts.root);
-      this.npcs.push({ def: npc, parts, anim, label });
     }
 
-    // Мобы
+    // Мобы — по локациям мира
     this.spawnInitialMobs();
 
     // Камера

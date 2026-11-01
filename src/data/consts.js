@@ -229,9 +229,24 @@ export const LOCATIONS = {
 };
 export const LOCATION_KEYS = Object.keys(LOCATIONS);
 export function locationsForWorld(worldId) {
-  return LOCATION_KEYS.filter(k => LOCATIONS[k].world === worldId).map(k => LOCATIONS[k]);
+  // world: null — локация доступна на всех мирах (общие охотничьи угодья)
+  return LOCATION_KEYS
+    .filter(k => LOCATIONS[k].world === worldId || LOCATIONS[k].world === null)
+    .map(k => LOCATIONS[k]);
 }
 export function locationById(id) { return LOCATIONS[id] || null; }
+
+// Ближайшая локация к точке карты (для HUD «вы здесь»)
+export function locationAt(x, z) {
+  let best = null, bestD = Infinity;
+  for (const k of LOCATION_KEYS) {
+    const L = LOCATIONS[k];
+    const cx = L.anchor[0] * 10, cz = L.anchor[1] * 10;
+    const d = Math.hypot(x - cx, z - cz);
+    if (d < bestD) { bestD = d; best = L; }
+  }
+  return best;
+}
 
 // --- Свойства персонажа -----------------------------------------------------
 export const STATS = {
