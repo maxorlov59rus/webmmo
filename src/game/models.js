@@ -14,6 +14,7 @@ export function buildHumanoid(opts) {
   const {
     skin = 0xc9a27a, cloth = 0x33415c, accent = 0x8a6d3b, metal = 0x9aa0a8,
     weaponType = 'sword', cloak = false, scale = 1,
+    hair = 0x5a3b22, hairStyle = 'short', faceHair = 'clean', eyeColor = 0xffe0a0, helm = true,
   } = opts;
 
   const root = new THREE.Group();
@@ -33,11 +34,55 @@ export function buildHumanoid(opts) {
   const head = new THREE.Group(); head.position.y = 1.02; torso.add(head);
   const skull = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.38, 0.32), M(skin));
   skull.position.y = 0.18; head.add(skull);
-  const helm = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), M(metal, { metalness: 0.5, roughness: 0.5 }));
-  helm.position.y = 0.3; head.add(helm);
+  if (helm) {
+    const hlm = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), M(metal, { metalness: 0.5, roughness: 0.5 }));
+    hlm.position.y = 0.3; head.add(hlm);
+  } else {
+    // --- причёска по стилю внешности ---
+    const hairMat = M(hair, { roughness: 0.95 });
+    if (hairStyle !== 'none') {
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.235, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2.1), hairMat);
+      cap.position.y = 0.28; head.add(cap);
+    }
+    if (hairStyle === 'long') {
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.12), hairMat);
+      back.position.set(0, 0.02, -0.17); head.add(back);
+    }
+    if (hairStyle === 'ponytail') {
+      const tie = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.44, 0.1), hairMat);
+      tie.position.set(0, 0.06, -0.22); tie.rotation.x = -0.35; head.add(tie);
+    }
+    if (hairStyle === 'braid') {
+      for (const s of [-1, 1]) {
+        const br = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.4, 0.08), hairMat);
+        br.position.set(s * 0.16, 0.0, -0.14); br.rotation.z = s * 0.2; head.add(br);
+      }
+    }
+    if (hairStyle === 'topknot') {
+      const knot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), hairMat);
+      knot.position.y = 0.44; head.add(knot);
+    }
+    // --- растительность на лице ---
+    if (faceHair === 'stubble') {
+      const st = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.06), M(hair, { transparent: true, opacity: 0.55 }));
+      st.position.set(0, 0.04, 0.16); head.add(st);
+    }
+    if (faceHair === 'mustache') {
+      const mu = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.05, 0.05), hairMat);
+      mu.position.set(0, 0.1, 0.17); head.add(mu);
+    }
+    if (faceHair === 'beard' || faceHair === 'braided') {
+      const bd = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.08), hairMat);
+      bd.position.set(0, -0.02, 0.15); head.add(bd);
+      if (faceHair === 'braided') {
+        const pl = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.22, 0.07), hairMat);
+        pl.position.set(0, -0.22, 0.14); head.add(pl);
+      }
+    }
+  }
   // глаза-точки (ночью видно)
   for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 5), new THREE.MeshBasicMaterial({ color: 0xffe0a0 }));
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 5), new THREE.MeshBasicMaterial({ color: eyeColor }));
     eye.position.set(s * 0.08, 0.2, 0.17); head.add(eye);
   }
 
@@ -228,6 +273,119 @@ export function buildMobMesh(shape, colorHex) {
       horn.position.set(s * 0.28, 2.15, 0); horn.rotation.z = s * -0.5; h.head.add(horn);
     }
     const glow = new THREE.PointLight(0x8a4fd0, 1.6, 10, 2); glow.position.y = 2; h.root.add(glow);
+    return h;
+  }
+  if (shape === 'wraith') {
+    const grp = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.62, 2.1, 7), M(0x241a10, { transparent: true, opacity: 0.8, emissive: 0x3a2408 }));
+    body.position.y = 1.15; grp.add(body);
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.44, 8, 6, 0, Math.PI * 2, 0, Math.PI / 1.7), M(0x140e08));
+    hood.position.y = 2.0; grp.add(hood);
+    const eyes = [];
+    for (const s of [-1, 1]) {
+      const e = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialSprite('#ffcf70', '#ff6a20'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      e.position.set(s * 0.13, 1.95, 0.34); e.scale.set(0.17, 0.17, 1); grp.add(e); eyes.push(e);
+    }
+    // когтистые лапы
+    for (const s of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.7, 0.14), M(0x1c140c));
+      arm.position.set(s * 0.5, 1.5, 0.2); arm.rotation.z = s * 0.5; grp.add(arm);
+      for (let i = 0; i < 3; i++) {
+        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.3, 4), M(0xd8c8a0));
+        claw.position.set(s * (0.62 + i * 0.06), 1.12, 0.28 + i * 0.08);
+        claw.rotation.x = 1.2; grp.add(claw);
+      }
+    }
+    const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialSprite('#ff9a4a', '#4a1a08'), transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+    aura.position.y = 1.3; aura.scale.set(2.8, 2.8, 1); grp.add(aura);
+    grp.userData = { eyes, aura, isShade: true };
+    return grp;
+  }
+  if (shape === 'chimera') {
+    const grp = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.75, 1.9), M(0x4a5a3a, { roughness: 0.9 }));
+    body.position.y = 0.95; grp.add(body);
+    const spineMat = M(0x8a4fd0, { emissive: 0x3a1a50 });
+    for (let i = 0; i < 5; i++) {
+      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.34 - i * 0.03, 4), spineMat);
+      fin.position.set(0, 1.36, 0.7 - i * 0.36); grp.add(fin);
+    }
+    // две головы: основная + козья сбоку
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.66), M(0x5a6a48));
+    head.position.set(0, 1.3, 1.2); grp.add(head);
+    const goat = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.32, 0.44), M(0x6a6a58));
+    goat.position.set(0.42, 1.24, 0.5); goat.rotation.y = -0.8; grp.add(goat);
+    for (const s of [-1, 1]) {
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.4, 5), M(0xd8c8a0));
+      horn.position.set(0.42 + s * 0.12, 1.5, 0.5); horn.rotation.z = s * 0.4; grp.add(horn);
+      const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialSprite('#ffe08a', '#ff8a30'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      eye.position.set(s * 0.13, 1.4, 1.5); eye.scale.set(0.15, 0.15, 1); grp.add(eye);
+    }
+    const legs = [];
+    for (const [sx, sz] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 0.2), M(0x3a4a30));
+      leg.position.set(sx * 0.34, 0.35, sz * 0.7); grp.add(leg); legs.push(leg);
+    }
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.02, 1.2, 5), M(0x7a5a30));
+    tail.position.set(0, 0.9, -1.3); tail.rotation.x = 1.1; grp.add(tail);
+    const stinger = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialSprite('#b060ff', '#4a1080'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    stinger.position.set(0, 1.1, -1.8); stinger.scale.set(0.4, 0.4, 1); grp.add(stinger);
+    grp.userData = { legs, tail, head };
+    return grp;
+  }
+  if (shape === 'golem') {
+    const grp = new THREE.Group();
+    const stoneMat = M(0x5a6470, { roughness: 1 });
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.3, 0.8), stoneMat);
+    torso.position.y = 1.5; grp.add(torso);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.5), M(0x4a525c));
+    head.position.y = 2.4; grp.add(head);
+    // светящиеся трещины люминита
+    const veinMat = new THREE.MeshBasicMaterial({ color: 0x7fe0c8 });
+    for (let i = 0; i < 6; i++) {
+      const v = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5 + (i % 3) * 0.2, 0.05), veinMat);
+      v.position.set(-0.4 + i * 0.16, 1.3 + (i % 2) * 0.4, 0.42);
+      v.rotation.z = (i % 2 ? 1 : -1) * 0.3; grp.add(v);
+    }
+    const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialSprite('#7fe0c8', '#0a4a3a'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    core.position.set(0, 1.6, 0.45); core.scale.set(0.8, 0.8, 1); grp.add(core);
+    const glow = new THREE.PointLight(0x7fe0c8, 1.2, 8, 2); glow.position.set(0, 1.6, 0.6); grp.add(glow);
+    const arms = [];
+    for (const s of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.3, 0.3), stoneMat);
+      arm.position.set(s * 0.78, 1.35, 0); grp.add(arm); arms.push(arm);
+      const fist = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), M(0x3e454e));
+      fist.position.set(s * 0.78, 0.62, 0.05); grp.add(fist);
+    }
+    for (const s of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.85, 0.36), M(0x464e58));
+      leg.position.set(s * 0.3, 0.42, 0); grp.add(leg);
+    }
+    grp.userData = { arms, isGolem: true };
+    return grp;
+  }
+  if (shape === 'colossus') {
+    const h = buildHumanoid({ skin: 0xcfc8b8, cloth: 0x4a4438, accent: 0x8a7a50, metal: 0xb0aca0, weaponType: 'axe', cloak: true, scale: 2.4 });
+    h.torso.children[0].material = M(0xbdb6a4);
+    // шлем часового + свечение глаз
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.7), M(0x8a7a50, { metalness: 0.6, roughness: 0.4 }));
+    crest.position.set(0, 0.45, 0); h.head.add(crest);
+    for (const s of [-1, 1]) {
+      const e = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialSprite('#c07ff0', '#4a1a70'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      e.position.set(s * 0.1, 0.2, 0.2); e.scale.set(0.3, 0.3, 1); h.head.add(e);
+    }
+    const glow = new THREE.PointLight(0xc07ff0, 1.4, 12, 2); glow.position.y = 3; h.root.add(glow);
+    return h;
+  }
+  if (shape === 'inquisitor') {
+    const h = buildHumanoid({ skin: 0xc9a27a, cloth: 0x6a6458, accent: 0xffd76a, metal: 0xd8b04a, weaponType: 'hammer', cloak: true, scale: 1.5 });
+    // латунная маска с трещиной
+    const mask = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 0.1), M(0xd8b04a, { metalness: 0.8, roughness: 0.3 }));
+    mask.position.set(0, 0.18, 0.2); h.head.add(mask);
+    // нимб-фонарь
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 6, 20), new THREE.MeshBasicMaterial({ color: 0xffe9a0 }));
+    halo.position.y = 0.75; halo.rotation.x = Math.PI / 2.4; h.head.add(halo);
+    const lamp = new THREE.PointLight(0xffd76a, 1.8, 12, 2); lamp.position.y = 2.4; h.root.add(lamp);
     return h;
   }
   // запасной вариант — гуманоид
