@@ -7,6 +7,7 @@ import { buildWorld, heightAt, resolveCollision } from './world.js';
 import { buildHumanoid, buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimController, makeLabel, updateLabelTexture } from './models.js';
 import { CombatFX, rollPlayerDamage, rollMobDamage } from './combat.js';
 import { NetClient } from './net.js';
+import { InstanceManager } from './instances.js';
 import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, countItem, equip, unequip, useConsumable, knownAbilities, serialize, deserialize, loadAccount, saveAccount } from './character.js';
 import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT, LOCATIONS, LOCATION_KEYS, locationById, locationAt, locationsForWorld, questByIdG, questsForNpcG, isInstanceQuestStep } from '../data/consts.js';
 import { appearanceToMeshOpts } from '../data/appearance.js';
@@ -30,6 +31,8 @@ export class Game {
     this.time = 0;                 // игровое время, сек
     this.paused = false;
     this.dialogOpen = false;
+    this.inst = new InstanceManager(this);   // инстансы: соло с ботами / с игроками
+    this.instCfg = { bots: true, timer: true, diffDefault: 'normal' };
     this.crafting = null;          // { recipe, t }
     this.deathTimer = 0;
     this.mouseNDC = new THREE.Vector2(0, 0);
@@ -292,6 +295,7 @@ export class Game {
       if (k === 'j') this.ui.togglePanel('quests');
       if (k === 'b') this.ui.togglePanel('craft');
       if (k === 'm') { e.preventDefault(); this.ui.openGameMenu(); }
+      if (k === 'n' || k === 'т') this.ui.togglePanel('instances');   // браузер инстансов
       if (k === 'escape') {
         if (!this.ui.closeIfOpen) {}
         if (!$('game-menu').classList.contains('hidden')) { /* UI сам закроет */ }
@@ -624,6 +628,14 @@ export class Game {
     if (m.hp <= 0) this.killMob(m);
   }
 
+  removeMob(m) {
+    if (!m) return;
+    if (this.target === m) { this.target = null; }
+    const i = this.mobs.indexOf(m);
+    if (i >= 0) this.mobs.splice(i, 1);
+    try { this.scene.remove(m.mesh); } catch (e) {}
+  }
+
   killMob(m) {
     m.dead = true; m.hp = 0;
     if (m.anim) m.anim.kill(); else m.mesh.userData.dying = true;
@@ -646,6 +658,7 @@ export class Game {
     if (got.length) { this.ui.lootPopup(got); this.ui.addChat('Добыча: ' + got.map(g => g.name).join(', '), '#8fd18f'); }
     // квесты
     this.onQuestEvent('kill', { mob: m.id, count: 1 });
+    if (this.inst) this.inst.onMobKilled(m);   // прогресс инстансового забега
     this.char.kills[m.id] = (this.char.kills[m.id] || 0) + 1;
     if (this.target === m) this.target = null;
     if (m.isBoss) {
