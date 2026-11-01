@@ -60,6 +60,123 @@ const mem = {                                      // фолбэк-хранил�
 };
 let nextAccId = 1, nextCharId = 1;
 
+// ------------------------- ГМ: уровни и полномочия ------------------------
+const GM_PERMS = {
+  announce:   1,   // /gm announce — баннер всем мирам
+  motd:       1,   // /gm motd — объявление при входе
+  who:        1,   // /gm who — онлайн-список
+  online:     1,   // /gm online — счётчик по мирам
+  char_find:  1,   // /gm find <имя> — поиск персонажа
+  teleport:   2,   // /gm tp <игрок> [x z] — телепорт игрока к себе или в координаты
+  kick:       2,   // /gm kick <игрок> [причина] — разрыв WS-сессии
+  mute:       2,   // /gm mute <игрок> <сек> | unmute — заглушка чата
+  char_info:  2,   // /gm info <имя> — сводка по персонажу из БД
+  spawn_xp:   3,   // /gm xp <игрок> <кол-во> — начислить опыт (через клиента-владелец сессии не обязателен)
+  world_msg:  3,   // /gm world <мир> <текст> — сообщение в конкретный мир
+  ban:        3,   // /gm ban <email> <мин> [причина] | unban — бан аккаунта
+  grant_gm:   9,   // /gm add_gm|del_gm — выдача/снятие ГМ (только владелец)
+  shutdown:   9,   // /gm shutdown [сек] — остановка сервера (только владелец)
+};
+const GM_LEVELS = { 1: 'Модератор', 2: 'ГМ', 3: 'Старший ГМ', 9: 'Владелец' };
+const gmPermsForLevel = (lvl) => Object.keys(GM_PERMS).filter(p => GM_PERMS[p] <= lvl);
+const memGm = new Map();                                 // email(lower) -> {level, perms:[..]}
+const banned = new Map();                                // email(lower) -> expireTs (в памяти + БД)
+
+function gmLevelOf(acc) {                                // acc: {email} или id
+  const key = String(acc.email || '').toLowerCase();
+  if (memGm.has(key)) return memGm.get(key).level;
+  return 0;
+}
+function gmCan(level, perm) { return level >= 9 || (GM_PERMS[perm] !== undefined && GM_PERMS[perm] <= level); }
+
+async function loadGmTable() {                            // синхронизация ядро↔БД при старте
+  if (!pool) return;
+  try {
+    await q(`CREATE TABLE IF NOT EXISTS gm_accounts (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      account_id INT UNSIGNED NOT NULL UNIQUE,
+      gm_level TINYINT UNSIGNED NOT NULL DEFAULT 1,
+      perms TEXT NULL, note VARCHAR(120) NOT NULL DEFAULT '',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+    await q(`CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      gm_email VARCHAR(190) NOT NULL, command VARCHAR(48) NOT NULL,
+      args VARCHAR(500) NOT NULL DEFAULT '', result VARCHAR(255) NOT NULL DEFAULT '',
+      ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_ts (ts))`);
+    await q(`CREATE TABLE IF NOT EXISTS bans (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(190) NOT NULL UNIQUE, reason VARCHAR(200) NOT NULL DEFAULT '',
+      expires_at TIMESTAMP NULL, banned_by VARCHAR(190) NOT NULL DEFAULT 'system',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+    const rows = await q(`SELECT a.email, g.gm_level FROM gm_accounts g JOIN accounts a ON a.id=g.account_id`);
+    for (const r of rows || []) memGm.set(String(r.email).toLowerCase(), { level: Number(r.gm_level) });
+    const bb = await q('SELECT email, UNIX_TIMESTAMP(expires_at)*1000 AS exp FROM bans WHERE expires_at IS NULL OR expires_at > NOW()');
+    for (const r of bb || []) if (r.exp === null || r.exp > Date.now()) banned.set(String(r.email).toLowerCase(), r.exp ?? Infinity);
+    log(`[gm] загружено ГМ: ${memGm.size}, активных банов: ${banned.size}`);
+  } catch (e) { warn('[gm] таблица ГМ недоступна:', e.message); }
+}
+async function audit(gmEmail, command, args, result) {
+  log(`[gm:${gmEmail}] ${command} ${args} → ${result}`);
+  if (pool) q('INSERT INTO audit_log (gm_email, command, args, result) VALUES (?,?,?,?)', [gmEmail, command, String(args).slice(0, 500), String(result).slice(0, 255)]).catch(() => {});
+}
+
+// ---- ГМ-хелперы: поиск сессии/персонажа, бан, права ----
+function findOnline(name) {
+  const n = String(name || '').toLowerCase();
+  for (const [sock, o] of online) if (o.name.toLowerCase() === n) return { sock, o };
+  return null;
+}
+async function findCharByName(name) {                   // имя персонажа → строка characters (или mem)
+  name = String(name || '');
+  if (pool) {
+    const rows = await q('SELECT c.*, a.email FROM characters c JOIN accounts a ON a.id=c.account_id WHERE c.name LIKE ? LIMIT 1', [`%${name}%`]);
+    return rows && rows.length ? rows[0] : null;
+  }
+  for (const v of mem.characters.values()) if (String(v.name).toLowerCase().includes(name.toLowerCase())) return v;
+  return null;
+}
+async function banEmail(email, minutes, reason, by) {
+  email = String(email).toLowerCase();
+  const exp = minutes > 0 ? Date.now() + minutes * 60000 : Infinity;
+  banned.set(email, exp);
+  if (pool) await q(`INSERT INTO bans (email, reason, expires_at, banned_by) VALUES (?,?,?,?)
+                     ON DUPLICATE KEY UPDATE reason=VALUES(reason), expires_at=VALUES(expires_at), banned_by=VALUES(banned_by)`,
+                    [email, String(reason||'').slice(0,200), minutes > 0 ? new Date(exp) : null, by]).catch(()=>{});
+  const hit = findOnline((await findAccount(email))?.nick || '');   // выкинуть из игры, если онлайн по нику
+  void hit;
+  for (const [sock, o] of [...online]) {
+    const acc = o.email ? await findAccount(o.email) : null;
+    if (acc && acc.email === email) { wsSend(sock, { type: 'banned', reason }); setTimeout(() => sock.close(4001, 'banned'), 150); online.delete(sock); }
+  }
+}
+async function unbanEmail(email) {
+  email = String(email).toLowerCase();
+  banned.delete(email);
+  if (pool) await q('DELETE FROM bans WHERE email = ?', [email]).catch(()=>{});
+}
+async function setGm(email, level) {                    // level 0 — снять ГМ
+  email = String(email).toLowerCase();
+  const acc = await findAccount(email);
+  if (!acc) throw new Error('Аккаунт не найден: ' + email);
+  if (level <= 0) {
+    memGm.delete(email);
+    if (pool) await q('DELETE FROM gm_accounts WHERE account_id = ?', [acc.id]).catch(()=>{});
+    return acc;
+  }
+  memGm.set(email, { level });
+  if (pool) await q(`INSERT INTO gm_accounts (account_id, gm_level, perms, note) VALUES (?,?,?,?)
+                     ON DUPLICATE KEY UPDATE gm_level=VALUES(gm_level), perms=VALUES(perms), note=VALUES(note)`,
+                    [acc.id, level, JSON.stringify(gmPermsForLevel(level)), 'deploy.php']).catch(()=>{});
+  return acc;
+}
+async function listGm() {
+  if (pool) {
+    const rows = await q('SELECT a.email, a.nick, g.gm_level FROM gm_accounts g JOIN accounts a ON a.id=g.account_id ORDER BY g.gm_level DESC');
+    return (rows || []).map(r => ({ email: r.email, nick: r.nick, level: Number(r.gm_level), title: GM_LEVELS[r.gm_level] || 'ГМ' }));
+  }
+  return [...memGm.entries()].map(([email, g]) => ({ email, nick: '', level: g.level, title: GM_LEVELS[g.level] || 'ГМ' }));
+}
+
 async function initDb() {
   if (NO_DB) { console.log('[db] NO_DB=1 — хранилище в памяти'); return; }
   const mysql = require('mysql2/promise');
@@ -145,9 +262,80 @@ app.post('/api/login', async (req, res) => {
     const acc = await findAccount(email);
     if (!acc) return res.status(401).json({ error: 'Учётная запись не найдена — зарегистрируйтесь.' });
     if (sha256(acc.salt + ':' + (password || '')) !== acc.pass_hash) return res.status(401).json({ error: 'Неверный пароль.' });
+    // проверка бана (связка БД ↔ ядро)
+    const bl = banned.get(String(acc.email).toLowerCase());
+    if (bl !== undefined && (bl === Infinity || bl > Date.now())) {
+      return res.status(403).json({ error: 'Учётная запись заблокирована администратором сервера.' });
+    } else if (bl !== undefined) banned.delete(String(acc.email).toLowerCase());
     if (pool) await q('UPDATE accounts SET last_login = NOW() WHERE id = ?', [acc.id]);
-    res.json(accountPayload(acc));
+    const gmLvl = gmLevelOf(acc);
+    res.json({ ...accountPayload(acc), gm: gmLvl ? { level: gmLvl, title: GM_LEVELS[gmLvl] || 'ГМ', perms: gmPermsForLevel(gmLvl) } : null });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Ошибка сервера.' }); }
+});
+
+// ---- ГМ-команды через HTTP (дубликат WS-слоя; нужен для панелей и скриптов) ----
+async function gmHttpAuth(req, res) {
+  if (!authTok(req, res)) return false;
+  const lvl = gmLevelOf({ email: req.acc.email });
+  if (!lvl) { res.status(403).json({ error: 'Требуется ГМ-статус.' }); return false; }
+  req.gm = { email: req.acc.email, level: lvl };
+  return true;
+}
+app.get('/api/gm/status', authTok, async (req, res) => {
+  const lvl = gmLevelOf({ email: req.acc.email });
+  res.json({ gm: !!lvl, level: lvl, title: GM_LEVELS[lvl] || null, perms: lvl ? gmPermsForLevel(lvl) : [], online: online.size });
+});
+app.get('/api/gm/who', gmHttpAuth, (_req, res) => {
+  const list = []; for (const o of online.values()) list.push({ name: o.name, world: o.worldId, level: o.level, gm: gmLevelOf({ email: o.email || '' }) });
+  res.json(list);
+});
+app.get('/api/gm/audit', gmHttpAuth, async (req, res) => {
+  if (req.gm.level < 2) return res.status(403).json({ error: 'Нужен уровень ≥2.' });
+  if (!pool) return res.json([]);
+  const rows = await q('SELECT gm_email, command, args, result, ts FROM audit_log ORDER BY id DESC LIMIT 100');
+  res.json(rows || []);
+});
+app.post('/api/gm/ban', gmHttpAuth, async (req, res) => {
+  if (!gmCan(req.gm.level, 'ban')) return res.status(403).json({ error: 'Недостаточно прав (нужен Старший ГМ).' });
+  const email = String((req.body || {}).email || '').toLowerCase();
+  const mins = Math.max(0, parseInt((req.body || {}).minutes || '60', 10));
+  const reason = String((req.body || {}).reason || '').slice(0, 200);
+  if (!validEmail(email)) return res.status(400).json({ error: 'Некорректный e-mail.' });
+  const exp = Date.now() + mins * 60000;
+  banned.set(email, mins ? exp : Infinity);
+  if (pool) q('INSERT INTO bans (email, reason, expires_at, banned_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE reason=VALUES(reason), expires_at=VALUES(expires_at), banned_by=VALUES(banned_by)',
+    [email, reason, mins ? new Date(exp) : null, req.gm.email]).catch(() => {});
+  for (const [sock, o] of online) if (o.email && o.email.toLowerCase() === email) { wsSend(sock, { type: 'banned', reason }); setTimeout(() => sock.close(4001, 'banned'), 150); online.delete(sock); }
+  audit(req.gm.email, 'ban', `${email} ${mins}мин ${reason}`, 'ok');
+  res.json({ ok: true });
+});
+app.post('/api/gm/unban', gmHttpAuth, async (req, res) => {
+  if (!gmCan(req.gm.level, 'ban')) return res.status(403).json({ error: 'Недостаточно прав.' });
+  const email = String((req.body || {}).email || '').toLowerCase();
+  banned.delete(email);
+  if (pool) await q('DELETE FROM bans WHERE email = ?', [email]).catch(() => {});
+  audit(req.gm.email, 'unban', email, 'ok');
+  res.json({ ok: true });
+});
+app.post('/api/gm/announce', gmHttpAuth, (req, res) => {
+  if (!gmCan(req.gm.level, 'announce')) return res.status(403).json({ error: 'Недостаточно прав.' });
+  const text = String((req.body || {}).text || '').slice(0, 200);
+  broadcast(null, { type: 'announce', text, channel: 'system' });
+  audit(req.gm.email, 'announce', text, 'sent');
+  res.json({ ok: true });
+});
+app.get('/api/gm/list', gmHttpAuth, async (_req, res) => res.json(await listGm()));
+app.post('/api/gm/add_gm', gmHttpAuth, async (req, res) => {
+  if (!gmCan(req.gm.level, 'grant_gm')) return res.status(403).json({ error: 'Только владелец сервера.' });
+  try { await setGm(String((req.body||{}).email||''), Math.max(1, Math.min(9, parseInt((req.body||{}).level||'2',10))));
+    audit(req.gm.email, 'add_gm', JSON.stringify(req.body||{}), 'ok'); res.json({ ok: true, gm: await listGm() });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/gm/del_gm', gmHttpAuth, async (req, res) => {
+  if (!gmCan(req.gm.level, 'grant_gm')) return res.status(403).json({ error: 'Только владелец сервера.' });
+  try { await setGm(String((req.body||{}).email||''), 0);
+    audit(req.gm.email, 'del_gm', String((req.body||{}).email||''), 'ok'); res.json({ ok: true, gm: await listGm() });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // список миров (для экрана выбора) — берём из БД
@@ -231,6 +419,8 @@ app.post('/api/character/:world', authTok, async (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: CFG.WS_PATH });
 const online = new Map();                          // socket -> {name, cls, x, z, worldId}
+const muted = new Map();                           // name(lower) -> expireTs
+let MOTD = 'Добро пожаловать в Эфирию. Свет — твоё оружие, тьма — твой враг.';
 
 // ---------------------- анти-флуд / рейт-лимиты ---------------------------
 class TokenBucket {
@@ -274,16 +464,18 @@ wss.on('connection', (ws) => {
     switch (m.type) {
       case 'hello': {
         if (me) return;                              // повторный hello игнорируем
-        me = { name: String(m.name || 'Странник').slice(0, 16), worldId: m.world || 'nwm-1', x: 0, z: 0, level: m.level || 1, cls: m.cls || 'warden' };
+        me = { name: String(m.name || 'Странник').slice(0, 16), worldId: m.world || 'nwm-1', x: 0, z: 0, level: m.level || 1, cls: m.cls || 'warden', email: String(m.email || '').toLowerCase(), gm: 0 };
+        // ГМ-статус по аккаунту (связка: токен/е-мейл клиента ↔ таблица gm_accounts)
+        if (me.email && memGm.has(me.email)) me.gm = memGm.get(me.email).level;
         online.set(ws, me);
         // шлём всем уже присутствующим о новичке
-        broadcast(null, { type: 'spawn', entity: { id: ws.__id || (ws.__id = crypto.randomUUID()), kind: 'player', name: me.name, cls: me.cls, color: '#d9a441', level: me.level, x: me.x, z: me.z, worldId: me.worldId } }, true);
+        broadcast(null, { type: 'spawn', entity: { id: ws.__id || (ws.__id = crypto.randomUUID()), kind: 'player', name: me.name, cls: me.cls, color: me.gm ? '#ff5f5f' : '#d9a441', level: me.level, gm: me.gm, x: me.x, z: me.z, worldId: me.worldId } }, true);
         // и новичку — про всех остальных
         for (const [sock, o] of online) {
           if (sock === ws) continue;
-          wsSend(ws, { type: 'spawn', entity: { id: sock.__id, kind: 'player', name: o.name, cls: o.cls, color: '#d9a441', level: o.level, x: o.x, z: o.z } });
+          wsSend(ws, { type: 'spawn', entity: { id: sock.__id, kind: 'player', name: o.name, cls: o.cls, color: o.gm ? '#ff5f5f' : '#d9a441', level: o.level, gm: o.gm, x: o.x, z: o.z } });
         }
-        wsSend(ws, { type: 'welcome', id: ws.__id, motd: 'Добро пожаловать в Эфирию. Свет — твоё оружие, тьма — твой враг.' });
+        wsSend(ws, { type: 'welcome', id: ws.__id, motd: MOTD, gm: me.gm, gmTitle: me.gm ? (GM_LEVELS[me.gm] || 'ГМ') : null, perms: me.gm ? gmPermsForLevel(me.gm) : [] });
         break;
       }
       case 'move': {
@@ -298,7 +490,11 @@ wss.on('connection', (ws) => {
         if (!buckets.chat.take()) { wsSend(ws, { type: 'notice', text: 'Слишком часто — подожди мгновение.' }); return; }
         const text = String(m.text || '').slice(0, 200);
         if (!text) return;
-        broadcast(null, { type: 'chat', author: me.name, text, channel: m.channel || 'global', color: '#cfe3ff' });
+        // ГМ-команды: /gm <cmd> ... (полномочия проверяются по уровню)
+        if (/^\/?gm[\s:]/i.test(text.trim())) { handleGm(ws, me, text.trim().replace(/^\/?gm[\s:]+/i, '')); break; }
+        const mu = muted.get(me.name.toLowerCase());
+        if (mu && mu > Date.now()) { wsSend(ws, { type: 'notice', text: `Вы заглушены до ${new Date(mu).toLocaleTimeString('ru-RU')} (ГМ-модерация).` }); break; }
+        broadcast(null, { type: 'chat', author: me.name, text, channel: m.channel || 'global', color: me.gm ? '#ff8a8a' : '#cfe3ff', gm: !!me.gm });
         if (pool) q('INSERT INTO chat_log (world_id, author, channel, text) VALUES (?,?,?,?)', [me.worldId, me.name, m.channel || 'global', text]).catch(() => {});
         else mem.chat.push({ world_id: me.worldId, author: me.name, channel: m.channel || 'global', text, ts: new Date() });
         break;
@@ -332,9 +528,159 @@ setInterval(() => {                     // heartbeat + idle-таймаут (на
 let tickN = 0;
 setInterval(() => { tickN++; }, CFG.TICK_MS);
 
+// ---------------------- ГМ-консоль (WS-команды) ----------------------------
+const GM_HELP = [
+  'Доступные команды: who · online · find <имя> · info <имя> · announce <текст> · motd <текст>',
+  'tp <игрок> [x z] · kick <игрок> [причина] · mute <игрок> <сек> · unmute <игрок>',
+  'xp <игрок> <кол-во> · world <мир> <текст> · ban <email> <мин> [причина] · unban <email>',
+  'add_gm <email> <уровень 1|2|3> · del_gm <email> · gmlist · help',
+];
+async function handleGm(ws, me, raw) {
+  const say = (t) => wsSend(ws, { type: 'notice', text: t });
+  if (!me.gm) return say('Команды доступны только ГМ-учётным записям.');
+  const sp = String(raw || '').trim().split(/\s+/);
+  let cmd = (sp.shift() || '').toLowerCase();
+  // поддержка написания «ГМ» по-русски: /gm гм who → who
+  if (cmd === 'гм' && sp.length) cmd = sp.shift().toLowerCase();
+  const needPerm = (p) => { if (!gmCan(me.gm, p)) { say(`Недостаточно прав: нужно «${p}» (ГМ ${GM_LEVELS[me.gm]}).`); return false; } return true; };
+  switch (cmd) {
+    case 'help': say(GM_HELP.join(' | ')); break;
+    case 'who': {
+      const l = [...online.values()].map(o => `${o.name}[${o.level}] ${o.worldId}${o.gm ? ' ★ГМ' : ''}`);
+      say(`Онлайн (${l.length}): ${l.join(', ') || '—'}`); audit(me.email, 'who', '', `n=${l.length}`); break;
+    }
+    case 'online': {
+      const byW = {}; for (const o of online.values()) byW[o.worldId] = (byW[o.worldId] || 0) + 1;
+      say(`Онлайн по мирам: ${Object.entries(byW).map(([w, n]) => `${w}=${n}`).join(' · ') || 'пусто'} (всего ${online.size})`); break;
+    }
+    case 'find': case 'info': {
+      if (!needPerm(cmd === 'find' ? 'char_find' : 'char_info')) break;
+      const ch = await findCharByName(sp.join(' '));
+      if (!ch) return say('Персонаж не найден в базе.');
+      let lvl = '?'; try { lvl = JSON.parse(ch.save_json).level ?? '?'; } catch (_) {}
+      say(`${ch.name}: мир=${ch.world_id}, уровень=${lvl}, аккаунт=${ch.email || '?'}, обновлён=${ch.updated_at || ''}`);
+      audit(me.email, cmd, sp.join(' '), ch.name); break;
+    }
+    case 'announce': case 'motd': {
+      if (!needPerm(cmd)) break;
+      const text = sp.join(' ').slice(0, 200);
+      if (!text) return say('Пустой текст.');
+      if (cmd === 'motd') { MOTD = text; say('MOTD обновлён — будет показан при следующем входе.'); }
+      else broadcast(null, { type: 'announce', text, channel: 'system' });
+      audit(me.email, cmd, text, 'ok'); break;
+    }
+    case 'tp': {
+      if (!needPerm('teleport')) break;
+      const target = findOnline(sp[0]);
+      if (!target) return say('Игрок не найден в онлайне.');
+      if (sp[1] !== undefined && sp[2] !== undefined) { target.o.x = +sp[1] || 0; target.o.z = +sp[2] || 0; }
+      else { target.o.x = me.x; target.o.z = me.z; }                    // телепорт к ГМ
+      wsSend(target.sock, { type: 'gm_tp', x: target.o.x, z: target.o.z });
+      broadcast(null, { type: 'move', id: target.sock.__id, x: target.o.x, z: target.o.z });
+      say(`${target.o.name} перемещён → (${target.o.x.toFixed(1)}, ${target.o.z.toFixed(1)})`);
+      audit(me.email, 'tp', sp.join(' '), 'ok'); break;
+    }
+    case 'kick': {
+      if (!needPerm('kick')) break;
+      const t = findOnline(sp[0]);
+      if (!t) return say('Игрок не в сети.');
+      const reason = sp.slice(1).join(' ') || 'без указания причины';
+      wsSend(t.sock, { type: 'kicked', reason });
+      setTimeout(() => t.sock.close(4000, 'kicked'), 150); online.delete(t.sock);
+      broadcast(null, { type: 'chat', author: 'СИСТЕМА', text: `${t.o.name} выдворен ГМ ${me.name}: ${reason}`, channel: 'system', color: '#ff8a8a' });
+      audit(me.email, 'kick', sp.join(' '), 'ok'); say('Готово.'); break;
+    }
+    case 'mute': {
+      if (!needPerm('mute')) break;
+      const secs = Math.max(5, Math.min(3600, parseInt(sp[1] || '300', 10)));
+      muted.set(String(sp[0] || '').toLowerCase(), Date.now() + secs * 1000);
+      say(`${sp[0]} заглушён на ${secs} c.`); audit(me.email, 'mute', sp.join(' '), `${secs}s`); break;
+    }
+    case 'unmute': {
+      if (!needPerm('mute')) break;
+      muted.delete(String(sp[0] || '').toLowerCase()); say('Заглушка снята.'); break;
+    }
+    case 'xp': {
+      if (!needPerm('spawn_xp')) break;
+      const t = findOnline(sp[0]); const amt = Math.max(0, parseInt(sp[1] || '0', 10));
+      if (!t) return say('Игрок не в сети.');
+      wsSend(t.sock, { type: 'gm_xp', amount: amt });
+      say(`Начислено ${amt} опыта игроку ${t.o.name} (клиент применит при получении).`); audit(me.email, 'xp', sp.join(' '), 'sent'); break;
+    }
+    case 'world': {
+      if (!needPerm('world_msg')) break;
+      const w = sp.shift(); const text = sp.join(' ');
+      for (const [sock, o] of online) if (o.worldId === w) wsSend(sock, { type: 'chat', author: 'ГМ-ВЕСТНИК', text, channel: 'global', color: '#ffd97a', gm: true });
+      say(`Сообщение доставлено в мир ${w}.`); audit(me.email, 'world', `${w} ${text}`, 'ok'); break;
+    }
+    case 'ban': {
+      if (!needPerm('ban')) break;
+      const email = sp[0], mins = parseInt(sp[1] || '60', 10), reason = sp.slice(2).join(' ');
+      if (!validEmail(email)) return say('Некорректный e-mail.');
+      await banEmail(email, isNaN(mins) ? 60 : mins, reason, me.email);
+      say(`${email} забанен${mins ? ` на ${mins} мин` : ' навсегда'}.`); audit(me.email, 'ban', sp.join(' '), 'ok'); break;
+    }
+    case 'unban': {
+      if (!needPerm('ban')) break;
+      await unbanEmail(sp[0] || ''); say('Бан снят.'); audit(me.email, 'unban', sp[0] || '', 'ok'); break;
+    }
+    case 'add_gm': case 'del_gm': {
+      if (!needPerm('grant_gm')) break;
+      try {
+        if (cmd === 'add_gm') { await setGm(sp[0], Math.max(1, Math.min(3, parseInt(sp[1] || '2', 10)))); say(`${sp[0]} повышен до ГМ ур.${sp[1] || 2}.`); }
+        else { await setGm(sp[0], 0); say(`ГМ-статус ${sp[0]} снят.`); }
+        audit(me.email, cmd, sp.join(' '), 'ok');
+      } catch (e) { say(e.message); }
+      break;
+    }
+    case 'gmlist': {
+      const g = await listGm();
+      say(g.length ? g.map(x => `${x.email} (${x.title})`).join(', ') : 'ГМ-записей нет.'); break;
+    }
+    case 'shutdown': {
+      if (!needPerm('shutdown')) break;
+      const s = Math.max(3, parseInt(sp[0] || '10', 10));
+      broadcast(null, { type: 'chat', author: 'СИСТЕМА', text: `Сервер перезагружается через ${s} с.`, channel: 'system', color: '#ff8a8a' });
+      audit(me.email, 'shutdown', `${s}s`, 'scheduled');
+      setTimeout(() => process.exit(0), s * 1000); break;
+    }
+    default: say('Неизвестная команда. /gm help');
+  }
+}
+
 // ------------------------------- старт -------------------------------------
+// Авто-ГМ: аккаунты из GM_EMAILS (супер-владелец, ур.9) и GM2_EMAIL (ур.3) —
+// если их нет в БД, создаются автоматически с паролями из .env.
+async function ensureAutoGm() {
+  const mk = [
+    { email: process.env.GM_EMAIL || '', pass: process.env.GM_PASS || 'Gm!NightCraft1', level: 9, nick: process.env.GM_NICK || 'Хранитель Зари' },
+    { email: process.env.GM2_EMAIL || '', pass: process.env.GM2_PASS || 'Gm!NightCraft2', level: 3, nick: process.env.GM2_NICK || 'Пепельный Вестник' },
+  ].filter(x => validEmail(x.email));
+  for (const g of mk) {
+    let acc = await findAccount(g.email);
+    if (!acc) {
+      const salt = makeSalt(), hash = sha256(salt + ':' + g.pass);
+      if (pool) {
+        const r = await q('INSERT INTO accounts (email, nick, pass_hash, salt) VALUES (?,?,?,?)', [g.email, g.nick, hash, salt]);
+        acc = { id: r.insertId, email: g.email, nick: g.nick };
+      } else {
+        acc = { id: nextAccId++, email: g.email, nick: g.nick, salt, pass_hash: hash, created_at: new Date() };
+        mem.accounts.set(acc.email, acc);
+      }
+      log(`[gm] авто-создание ГМ-аккаунта: ${g.email}`);
+    }
+    memGm.set(String(acc.email).toLowerCase(), { level: g.level });
+    if (pool) await q(`INSERT INTO gm_accounts (account_id, gm_level, perms, note) VALUES (?,?,?,?)
+                       ON DUPLICATE KEY UPDATE gm_level=VALUES(gm_level), perms=VALUES(perms)`,
+                      [acc.id, g.level, JSON.stringify(gmPermsForLevel(g.level)), 'deploy.php auto']).catch(()=>{});
+    log(`[gm] ${acc.email} → ${GM_LEVELS[g.level]} (${gmPermsForLevel(g.level).length} прав)`);
+  }
+}
+
 (async () => {
   await initDb();
+  await loadGmTable();
+  await ensureAutoGm();
   server.listen(PORT, BIND_ADDR, () => {
     console.log('============================================================');
     console.log(`  Ночь Военного Ремесла — сервер: http://localhost:${PORT}`);

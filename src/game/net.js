@@ -31,7 +31,8 @@ export class NetClient {
 
   emit(ev, payload) { if (this.on[ev]) this.on[ev](payload); }
 
-  connect(selfName) {
+  connect(selfName, email) {
+    this.email = email || '';
     return new Promise((resolve) => {
       if (!this.url) { this._startLocalSim(selfName); resolve('offline'); return; }
       try {
@@ -46,7 +47,7 @@ export class NetClient {
       this.ws.onopen = () => {
         clearTimeout(to);
         this.mode = 'live'; this.connectedAt = performance.now();
-        this._send(PROTO.HELLO, { name: selfName, ver: 1 });
+        this._send(PROTO.HELLO, { name: selfName, ver: 1, email: this.email || '' });
         resolve('live');
       };
       this.ws.onmessage = (m) => {
@@ -72,6 +73,12 @@ export class NetClient {
       case PROTO.MOVE:    this.emit('entityMove', msg); break;
       case PROTO.CHAT:    this.emit('chat', msg); break;
       case PROTO.EMOTE:   this.emit('emote', msg); break;
+      case 'notice':      this.emit('notice', msg); break;       // служебные сообщения/ГМ-консоль
+      case 'announce':    this.emit('announce', msg); break;     // баннер от ГМ
+      case 'gm_tp':       this.emit('gmTp', msg); break;         // телепорт по команде ГМ
+      case 'gm_xp':       this.emit('gmXp', msg); break;         // начисление опыта ГМ
+      case 'kicked':      this.emit('kicked', msg); break;       // выдворен ГМ
+      case 'banned':      this.emit('banned', msg); break;       // аккаунт забанен
       default: break;
     }
   }

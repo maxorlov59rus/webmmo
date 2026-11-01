@@ -84,6 +84,7 @@ $('btn-logout').addEventListener('click', (ev) => {
 
 function enterAccount(acc, helloMsg) {
   account = acc;
+  try { window.nvrAccount = acc; } catch (_) {}   // для ГМ-контура (net.js передаёт email на сервер)
   renderWorldList();
   $('world-acc').textContent = `${acc.nick} <${acc.email}>`;
   setMsg('world-msg', helloMsg, true);
