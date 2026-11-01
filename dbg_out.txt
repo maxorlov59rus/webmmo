@@ -1,0 +1,6 @@
+screen-world visible: True
+btn-start enabled: True
+0 {'loading': False, 'ltext': "Застава не открылась: Cannot read properties of undefined (reading 'copy')", 'game': False, 'hasGame': True, 'running': False}
+LOG: error: TypeError: Cannot read properties of undefined (reading 'copy')
+    at Game.spawnMob (http://localhost:3000/src/game/main.js:263:21)
+    at Game.spawnInitialMobs (http://localhost:3000/src/game
