@@ -889,10 +889,14 @@ export const ALL_QUESTS = QUESTS.concat(QUESTS_GEN);
 export function questByIdG(qid) { return ALL_QUESTS.find(q => q.id === qid) || null; }
 export function questsForNpcG(npcId) { return ALL_QUESTS.filter(q => q.giver === npcId); }
 
-// Инстансовые «врата» — невидимые квестодатели у порталов (см. instances.js)
+// Инстансовые «врата» — квестодатели у порталов (см. instances.js).
+// Фикс: шаг инстансового квеста помечен type==="kill_instance" (или типом kill с
+// флагом instance), поэтому детектим по типу шага, а не по тексту/hint.
+export const isInstanceQuestStep = (st) => !!st && (st.type === 'kill_instance' || (st.type === 'kill' && st.instance === true));
+export const isInstanceQuest = (q) => !!(q && q.steps && q.steps.some(isInstanceQuestStep));
 export const INST_GATE_NPCS = {};
 for (const q of QUESTS_GEN) {
-  if (/инстанс/i.test(q.steps[0] ? q.steps[0].text : '') || /инстанс/i.test(q.hint)) {
+  if (isInstanceQuest(q)) {
     const gid = 'gate_' + q.loc;
     if (!INST_GATE_NPCS[gid]) INST_GATE_NPCS[gid] = { id: gid, name: 'Врата Инстансов', role: 'Хранитель порогов Долгой Ночи', faction: 'umbral', color: '#c07ff0', loc: q.loc, offset: [4, 4], quests: [] };
     INST_GATE_NPCS[gid].quests.push(q.id);
