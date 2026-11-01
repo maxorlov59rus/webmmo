@@ -47,6 +47,13 @@ const CFG = {
   SYS_JOIN_LEAVE: process.env.SYS_JOIN_LEAVE !== '0',
   SYS_MAX_LEN:    Math.max(60, parseInt(process.env.SYS_MAX_LEN || '200', 10)),
   PUBLIC_MODE:    process.env.PUBLIC_MODE === '1',
+  // --- ИНСТАНСЫ: настройки, задаваемые при установке сервера (server/.env) ---
+  INST_ENABLED:        process.env.INST_ENABLED !== '0',          // включить механику инстансов
+  INST_LOCK_HOURS:     Math.max(1, parseInt(process.env.INST_LOCK_HOURS || '168', 10)), // жизнь lock ID (недельный сброс)
+  INST_BOTS_ALLOWED:   process.env.INST_BOTS_ALLOWED !== '0',     // соло-игра с ботами
+  INST_DIFF_MULT:      Math.min(3, Math.max(1, parseInt(process.env.INST_DIFF_MULT || '3', 10))), // 1..3 доступных сложности
+  INST_AUTOLOOT:       process.env.INST_AUTOLOOT !== '0',         // автовыдача наград за босса
+  INST_MAX_CONCURRENT: Math.max(1, parseInt(process.env.INST_MAX_CONCURRENT || '50', 10)), // одновременных активных зон
   ALLOW_REG:      process.env.ALLOW_REG !== '0',
   LOG_LEVEL:      process.env.LOG_LEVEL || 'info',
 };
@@ -211,6 +218,14 @@ async function initDb() {
     console.log('[db] схема применена (schema.sql)');
   }
   pool = await mysql.createPool({ ...cfg, database: dbName, waitForConnections: true, connectionLimit: 10 });
+  // сиды инстансов/квестов (34 зоны + 352 квеста) — идемпотентно, ON DUPLICATE KEY UPDATE
+  try {
+    if (require('fs').existsSync(path.join(__dirname, 'seed_instances.sql'))) {
+      const seed = require('fs').readFileSync(path.join(__dirname, 'seed_instances.sql'), 'utf8');
+      await pool.query(seed);
+      console.log('[db] сиды instances/quests применены (seed_instances.sql)');
+    }
+  } catch (e) { console.warn('[db] seed_instances.sql:', e.message); }
   const [rows] = await pool.query('SELECT COUNT(*) AS n FROM accounts');
   console.log(`[db] MySQL ok: ${dbName}, аккаунтов: ${rows[0].n}`);
 }
@@ -593,6 +608,78 @@ function broadcast(sender, obj, sameWorldOnly = true) {
   }
 }
 
+
+// ======================= ИНСТАНСЫ: серверная механика ========================
+// Справочник зон — синхронизирован с src/data/instances.js и таблицей `instances`.
+const INSTANCES_DEF = require('./instances_def.json');   // 34 зоны
+const instLocks = [];                                     // активные замки (lock id)
+const instRuns  = new Map();                              // id -> состояние забега
+let instSeq = 0;
+
+function instConf(instId) { return INSTANCES_DEF.find(i => i.id === instId) || null; }
+function instDiffMult(diff) { return diff === 'mythic' ? 2.6 : diff === 'heroic' ? 1.7 : 1.0; }
+
+function myLocks(name, worldId) {
+  const now = Date.now();
+  for (let i = instLocks.length - 1; i >= 0; i--) if (instLocks[i].expiresAt < now) instLocks.splice(i, 1);
+  return instLocks.filter(l => l.worldId === worldId && l.party.some(n => n === name));
+}
+
+function instCreateRun(me, instId, diff, partyNames) {
+  const def = instConf(instId);
+  if (!def) return { error: 'Инстанс не найден в справочнике сервера.' };
+  if (!CFG.INST_ENABLED) return { error: 'Инстансы отключены настройкой INST_ENABLED=0.' };
+  if (diff === 'heroic' && CFG.INST_DIFF_MULT < 2) return { error: 'Героическая сложность выключена на этом сервере.' };
+  if (diff === 'mythic' && CFG.INST_DIFF_MULT < 3) return { error: 'Мифическая сложность выключена на этом сервере.' };
+  const party = (partyNames || [me.name]).slice(0, def.size).filter(Boolean);
+  if (party.length > 1 && !CFG.INST_BOTS_ALLOWED && party.some(n => n !== me.name)) {
+    // боты разрешены только если INST_BOTS_ALLOWED=1; живые игроки проходят всегда
+  }
+  if (instRuns.size >= CFG.INST_MAX_CONCURRENT) return { error: 'Сервер перегружен забегами, попробуй позже.' };
+  const locked = myLocks(me.name, me.worldId).find(l => l.instId === instId && l.diff === diff && !l.completed);
+  if (locked) return { error: 'У тебя уже есть незавершённый замок этой зоны (lock ID #' + locked.id + '). Пройди или дождись сброса.' };
+  const run = {
+    id: ++instSeq, instId, diff, leader: me.name, party,
+    wave: 0, mobsLeft: def.mobs.reduce((a, m) => a + m[1], 0), bossDown: false,
+    startedAt: Date.now(), timerMs: def.timerMin * 60000, mult: instDiffMult(diff),
+    ws: me, state: 'running',
+  };
+  const lock = { id: 'L' + instSeq, instId, diff, worldId: me.worldId, leaderName: me.name, party, createdAt: Date.now(), expiresAt: Date.now() + CFG.INST_LOCK_HOURS * 3600e3, completed: false, runId: run.id };
+  instLocks.push(lock);
+  instRuns.set(run.id, run);
+  q('INSERT INTO instance_locks (world_id, inst_id, diff, leader_name, party_json, expires_at) VALUES (?,?,?,?,?,FROM_UNIXTIME(?))',
+    [me.worldId, instId, diff, me.name, JSON.stringify(party), Math.floor(lock.expiresAt / 1000)]).catch(() => {});
+  sysMsg(me.worldId, `${me.name} открыл(а) инстанс «${def.name}» (${diff}, ${party.length} чел., lock #${lock.id}).`, 'event');
+  return { run, lock };
+}
+
+function instWaveClear(run) {
+  const def = instConf(run.instId);
+  run.wave++;
+  q('INSERT INTO instance_progress (lock_id, wave_no, mobs_killed) VALUES (?,?,?)', [run.lockDbId || run.id, run.wave, def.mobs.reduce((a,m)=>a+m[1],0)]).catch(()=>{});
+  if (run.wave >= def.waves) return instFinish(run, true);
+  return { type: 'inst_wave', runId: run.id, wave: run.wave, total: def.waves, nextBoss: run.wave === def.waves - 1 };
+}
+
+function instFinish(run, success) {
+  const def = instConf(run.instId);
+  run.state = success ? 'cleared' : 'failed';
+  const lk = instLocks.find(l => l.runId === run.id);
+  if (lk) lk.completed = success;
+  if (success && CFG.INST_AUTOLOOT) {
+    const rw = def.rewards;
+    wsSend(run.ws, { type: 'inst_reward', runId: run.id, xp: Math.round(rw.xp * run.mult), gold: Math.round(rw.gold * run.mult), loot: rw.loot, rep: rw.rep });
+  }
+  sysMsg(run.wsWorld || 'nwm-1', `Забег «${def.name}»: ${success ? 'зона зачищена' : 'таймер истёк'}.`, 'event');
+  setTimeout(() => instRuns.delete(run.id), 60000);
+  return { type: 'inst_end', runId: run.id, success };
+}
+
+function instPublicList(name, worldId) {
+  const locks = myLocks(name, worldId).map(l => ({ lockId: l.id, instId: l.instId, diff: l.diff, completed: l.completed, expiresInH: Math.max(0, Math.round((l.expiresAt - Date.now()) / 3600e3) / 1) }));
+  return { type: 'inst_list', instances: INSTANCES_DEF.map(d => ({ id: d.id, num: d.num, name: d.name, theme: d.theme, diff: d.diff, size: d.size, levelMin: d.levelMin, levelMax: d.levelMax, waves: d.waves, boss: d.boss, timerMin: d.timerMin, keyReq: d.keyReq, enabled: CFG.INST_ENABLED })), locks, cfg: { enabled: CFG.INST_ENABLED, bots: CFG.INST_BOTS_ALLOWED, diffMult: CFG.INST_DIFF_MULT, lockHours: CFG.INST_LOCK_HOURS } };
+}
+
 wss.on('connection', (ws) => {
   // лимит одновременных соединений
   if (online.size >= CFG.MAX_PLAYERS_WS) {
@@ -680,6 +767,32 @@ wss.on('connection', (ws) => {
         broadcast(ws, { type: 'emote', id: ws.__id, name: String(m.name || 'поклон').slice(0, 16) });
         break;
       }
+      case 'inst.list': wsSend(ws, instPublicList(me ? me.name : '', me ? me.worldId : 'nwm-1')); break;
+      case 'inst.create': {
+        if (!me) break;
+        const r = instCreateRun(me, String(m.instId || ''), ['normal','heroic','mythic'].includes(m.diff) ? m.diff : 'normal', Array.isArray(m.party) ? m.party : [me.name]);
+        if (r.error) { wsSend(ws, { type: 'inst_error', error: r.error }); break; }
+        const def = instConf(r.run.instId);
+        wsSend(ws, { type: 'inst_enter', runId: r.run.id, lockId: r.lock.id, inst: def, diff: r.run.diff, mult: r.run.mult, party: r.run.party, wave: 0, timerMs: r.run.timerMs });
+        break;
+      }
+      case 'inst.kill': {
+        if (!me) break;
+        const run = instRuns.get(+m.runId);
+        if (!run || run.leader !== me.name) break;
+        run.mobsLeft = Math.max(0, run.mobsLeft - 1);
+        if (m.boss) run.bossDown = true;
+        if (run.mobsLeft <= 0) { const ev = instWaveClear(run); wsSend(ws, ev); if (ev.type === 'inst_end') wsSend(ws, { type: 'inst_leave', runId: run.id }); }
+        else wsSend(ws, { type: 'inst_progress', runId: run.id, mobsLeft: run.mobsLeft, wave: run.wave });
+        break;
+      }
+      case 'inst.leave': {
+        if (!me) break;
+        const run = instRuns.get(+m.runId);
+        if (run && run.leader === me.name) { const ev = instFinish(run, false); wsSend(ws, ev); }
+        wsSend(ws, { type: 'inst_leave', runId: +m.runId });
+        break;
+      }
       case 'ping': wsSend(ws, { type: 'pong', t: m.t }); break;
       default: break;
     }
@@ -714,6 +827,7 @@ const GM_HELP = [
   'xp <игрок> <кол-во> · world <мир> <текст> · ban <email> <мин> [причина] · unban <email>',
   'add_gm <email> <уровень 1|2|3> · del_gm <email> · gmlist · help',
   'чат: wmsg <игрок> <текст> — системное ЛС · sysmsg <текст> — инфо всем в мире · channels · chat <канал> вкл|выкл',
+  'инстансы: inst list · inst open <inst_id> [normal|heroic|mythic] · inst locks · inst clear <lock_id>',
 ];
 async function handleGm(ws, me, raw) {
   const say = (t) => wsSend(ws, { type: 'notice', text: t });
@@ -845,6 +959,17 @@ async function handleGm(ws, me, raw) {
       await saveChatSetting(key, on ? '1' : '0');
       broadcast(null, { type: 'chat_settings', channels: chatChannelsPublic() });   // клиенты обновят вкладки
       say(`Канал «${sp[0]}» ${on ? 'включён' : 'отключён'} (сохранено в БД).`); audit(me.email, 'chat', sp.join(' '), 'ok'); break;
+    }
+    case 'inst': {
+      if (!needPerm('manage')) break;
+      const sub = (sp.shift() || 'list').toLowerCase();
+      if (sub === 'list') say(INSTANCES_DEF.map(d => `${d.id} «${d.name}» ур.${d.levelMin}-${d.levelMax} ${d.diff} на ${d.size}`).join(' | '));
+      else if (sub === 'open') {
+        const r = instCreateRun({ name: me.name, worldId: me.worldId }, sp.shift() || 'inst_01', (sp.shift() || 'normal'), [me.name]);
+        say(r.error || `Забег #${r.run.id} открыт: ${r.run.instId} (${r.run.diff}), lock ${r.lock.id}`);
+      } else if (sub === 'locks') say(instLocks.length ? instLocks.map(l => `${l.id} ${l.instId}/${l.diff} лидер=${l.leaderName} ${l.completed ? 'готов' : 'активен'} ${Math.round((l.expiresAt - Date.now())/3600e3)}ч`).join(' | ') : 'Замков нет.');
+      else if (sub === 'clear') { const i = instLocks.findIndex(l => l.id === sp[0]); if (i >= 0) { instLocks.splice(i, 1); say('Замок снят.'); } else say('Не найдено.'); }
+      break;
     }
     case 'shutdown': {
       if (!needPerm('shutdown')) break;

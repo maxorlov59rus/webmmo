@@ -83,6 +83,15 @@ export class NetClient {
       case 'gm_xp':       this.emit('gmXp', msg); break;         // начисление опыта ГМ
       case 'kicked':      this.emit('kicked', msg); break;       // выдворен ГМ
       case 'banned':      this.emit('banned', msg); break;       // аккаунт забанен
+      // ---- ИНСТАНСЫ (серверные ответы) ----
+      case 'inst_list':    this.emit('instList', msg); break;
+      case 'inst_enter':   this.emit('instEnter', msg); break;
+      case 'inst_progress':this.emit('instProgress', msg); break;
+      case 'inst_wave':    this.emit('instWave', msg); break;
+      case 'inst_reward':  this.emit('instReward', msg); break;
+      case 'inst_end':     this.emit('instEnd', msg); break;
+      case 'inst_leave':   this.emit('instLeave', msg); break;
+      case 'inst_error':   this.emit('instError', msg); break;
       default: break;
     }
   }
@@ -90,6 +99,11 @@ export class NetClient {
   sendMove(x, z, rot) { this._send(PROTO.MOVE, { x: round(x), z: round(z), r: round(rot) }); }
   sendChat(text, channel) { this._send(PROTO.CHAT, { text, channel: channel || 'global' }); }
   sendEmote(name) { this._send(PROTO.EMOTE, { name }); }
+  // ---- Инстансы: запросы к серверной механике ----
+  sendInstList() { this._send('inst.list', {}); }
+  sendInstCreate(instId, diff, party) { this._send('inst.create', { instId, diff, party }); }
+  sendInstKill(runId, boss) { this._send('inst.kill', { runId, boss: !!boss }); }
+  sendInstLeave(runId) { this._send('inst.leave', { runId }); }
 
   // ---------- Локальная симуляция «сервера» ----------
   _startLocalSim(selfName) {

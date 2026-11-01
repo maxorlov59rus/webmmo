@@ -191,6 +191,18 @@
     <header><span>Журнал заданий</span><button class="panel-close" data-close>✕</button></header>
     <div class="panel-body" id="quests-body"></div>
   </section>
+  <section id="panel-instances" class="panel hidden" data-panel>
+    <header><span>Инстансы Ночи (34 зоны)</span><button class="panel-close" data-close>✕</button></header>
+    <div class="panel-body">
+      <div id="inst-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <input id="inst-search" placeholder="Поиск по названию…" style="flex:1;min-width:140px"/>
+        <select id="inst-diff"><option value="">Все сложности</option><option value="normal">Обычный</option><option value="heroic">Героический</option><option value="mythic">Мифический</option></select>
+        <select id="inst-size"><option value="">Любой формат</option><option value="1">Соло (1)</option><option value="5">Группа (5)</option><option value="10">Рейд (10)</option></select>
+      </div>
+      <div id="inst-hud" class="hidden"></div>
+      <div id="inst-list"></div>
+    </div>
+  </section>
 
   <div id="dialog-frame" class="hidden">
     <div class="dialog-portrait" id="dlg-portrait"></div>
