@@ -112,6 +112,53 @@ export class UI {
     if (name === 'character') this.renderCharacter();
     if (name === 'craft') this.renderCraft();
     if (name === 'quests') this.renderQuests();
+    if (name === 'instances') this.renderInstances();
+  }
+
+  // ---------------- ИНСТАНСЫ: визуализация в клиенте ------------------------
+  renderInstances() {
+    const g = this.game;
+    const list = document.getElementById('inst-list'); if (!list) return;
+    const q = (document.getElementById('inst-search') || {}).value || '';
+    const df = (document.getElementById('inst-diff') || {}).value || '';
+    const sz = (document.getElementById('inst-size') || {}).value || '';
+    const items = INSTANCES.filter(i => (!q || i.name.toLowerCase().includes(q.toLowerCase())) && (!df || i.diff === df) && (!sz || String(i.size) === sz));
+    list.innerHTML = items.map(i => {
+      const d = DIFFICULTY[i.diff];
+      const lock = g.inst.run && g.inst.run.def.id === i.id;
+      const lvlOk = g.char.level >= i.levelMin;
+      const fmt = i.size === 1 ? 'СОЛО' : i.size === 5 ? 'ГРУППА ×5' : 'РЕЙД ×10';
+      return `<div class="inst-card" style="border:1px solid #333;border-radius:6px;padding:8px;margin:6px 0;background:#151220">
+        <div style="display:flex;justify-content:space-between;gap:8px">
+          <b style="color:${d.color}">${i.num}. ${i.name}</b><span style="font-size:11px;color:#9aa">${fmt} · ур.${i.levelMin}–${i.levelMax}</span></div>
+        <div style="font-size:12px;color:#aab;margin:4px 0">${i.desc}</div>
+        <div style="font-size:11px;color:#889">Волн: ${i.waves} · Босс: ${(MOBS[i.boss]||{name:i.boss}).name} · Таймер: ${i.timerMin} мин${i.keyReq ? ' · Нужен ключ: ' + i.keyReq : ''}</div>
+        <div style="font-size:11px;color:#ffd24a;margin:4px 0">Награда: ${i.rewards.xp} опыта, ${i.rewards.gold} зол. · Лут: ${i.rewards.loot.map(x=>(ITEMS[x]||{name:x}).name).join(', ')}</div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          ${['normal','heroic','mythic'].map(dd=>`<button data-inst="${i.id}" data-diff="${dd}" ${lvlOk?'':'disabled title="Нужен ур. '+i.levelMin+'"'} style="background:${dd===i.diff?DIFFICULTY[dd].color:'#222'};color:#0b0b12;font-weight:600;border:none;border-radius:4px;padding:4px 8px;cursor:pointer">${DIFFICULTY[dd].name}</button>`).join('')}
+          ${lock?'<span style="color:#c07ff0;font-size:11px;align-self:center">◈ активный забег</span>':''}
+        </div></div>`;
+    }).join('') || '<div style="color:#889">Нет зон под фильтр.</div>';
+    list.querySelectorAll('button[data-inst]').forEach(b => b.onclick = () => {
+      if (g.inst.run) { this.toast('Сначала выйди из текущего инстанса.', '#e88'); return; }
+      g.inst.enter(b.dataset.inst, b.dataset.diff);
+    });
+    ['inst-search','inst-diff','inst-size'].forEach(id => { const el=document.getElementById(id); if(el&&!el.__b){el.__b=1; el.addEventListener('input',()=>this.renderInstances());} });
+    this.renderInstanceHud();
+  }
+  renderInstanceHud() {
+    const g = this.game, el = document.getElementById('inst-hud'); if (!el) return;
+    const run = g.inst.run;
+    if (!run) { el.classList.add('hidden'); el.innerHTML=''; return; }
+    el.classList.remove('hidden');
+    const left = Math.max(0, Math.round(run.endsAt - g.time));
+    const mm = Math.floor(left/60), ss = String(left%60).padStart(2,'0');
+    el.innerHTML = `<div style="border:1px solid #c07ff0;border-radius:6px;padding:8px;margin:6px 0;background:#1c1430">
+      <b style="color:#c07ff0">⚔ ${run.def.name}</b> <span style="color:#9aa">(${DIFFICULTY[run.diff].name}, ×${run.mult})</span>
+      <div style="font-size:12px;color:#ccd;margin-top:4px">Волна ${run.wave+1}/${run.total} · Осталось мобов: ${run.mobsLeft} · ⏱ ${mm}:${ss}</div>
+      <div style="font-size:11px;color:#8fd18f;margin-top:2px">Отряд: ${run.party.join(', ')}${g.inst.bots.length?' (боты)':''} · Lock ID: ${run.lockId}</div>
+      <button id="inst-exit" style="margin-top:6px;background:#3a2030;color:#ff9a9a;border:1px solid #a05;border-radius:4px;padding:3px 10px;cursor:pointer">Выйти из зоны</button></div>`;
+    const ex = document.getElementById('inst-exit'); if (ex) ex.onclick = () => g.inst.finish(false);
   }
 
   // --- Верхний HUD -------------------------------------------------------------
