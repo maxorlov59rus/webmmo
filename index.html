@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ночь Военного Ремесла</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- WebGL-полотно -->
+<canvas id="gl"></canvas>
+
+<!-- ЭКРАН СОЗДАНИЯ -->
+<div id="screen-create" class="screen">
+  <div class="menu-frame">
+    <div class="game-logo">
+      <div class="logo-moon"></div>
+      <h1 id="title-main">НОЧЬ</h1>
+      <h2 id="title-sub">ВОЕННОГО РЕМЕСЛА</h2>
+      <div class="logo-tag">браузерная 3D-MMORPG · фэнтези · Застава под луной</div>
+    </div>
+    <div id="menu-online">Игроков в мире сейчас: 137</div>
+    <div class="create-box">
+      <label class="name-label">Имя героя
+        <input id="hero-name" maxlength="20" placeholder="например, Вьюг" autocomplete="off">
+      </label>
+      <div id="class-cards" class="class-cards"></div>
+      <div class="start-row">
+        <button id="btn-start" disabled>⚔ Встать на ночную смену</button>
+        <div id="continue-row" class="hidden">
+          <button id="btn-continue" class="secondary">Продолжить путь сохранённого героя</button>
+        </div>
+      </div>
+      <p class="hint">Совет: WASD — движение, ЛКМ по врагу — атака, [1–5] — способности, [F] — разговор и горн, [H] — справка.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ЭКРАН ЗАГРУЗКИ -->
+<div id="screen-loading" class="screen hidden">
+  <div class="loading-box">
+    <div class="forge-spinner"></div>
+    <div id="loading-text">Разжигаем горн…</div>
+    <div class="loading-tip">«Пока молот горяч — ночь не кончена»</div>
+  </div>
+</div>
+
+<!-- ИГРА -->
+<div id="screen-game" class="hidden">
+
+  <!-- верхний левый: портрет/полосы -->
+  <div id="hud-top-left">
+    <div id="portrait">Н</div>
+    <div class="bars">
+      <div id="char-name-hud">—</div>
+      <div class="bar hp"><div id="hp-fill"></div><span id="hp-text"></span></div>
+      <div class="bar mp"><div id="mp-fill"></div><span id="mp-text"></span></div>
+      <div class="bar xp"><div id="xp-fill"></div></div>
+    </div>
+    <div id="level-badge">1</div>
+    <div id="buff-shield" class="buff hidden" title="Бастион: -50% урона">🛡</div>
+  </div>
+
+  <!-- цель -->
+  <div id="target-frame" class="hidden">
+    <div id="target-name">Цель</div>
+    <div class="bar target-hp"><div id="target-hp-fill"></div></div>
+  </div>
+
+  <!-- статус сервера / золото -->
+  <div id="hud-top-right">
+    <div id="server-dot">● <span id="server-status">симуляция</span></div>
+    <div id="gold-line">💰 <span id="gold-count">0</span></div>
+  </div>
+
+  <!-- кнопки панелей -->
+  <div id="menu-bar">
+    <button data-panel="inventory" title="Инвентарь (I)">🎒</button>
+    <button data-panel="character" title="Персонаж (C)">🧝</button>
+    <button data-panel="spells" title="Способности (K)">✨</button>
+    <button data-panel="quests" title="Журнал (J)">📜</button>
+    <button data-panel="help" title="Справка (H)">❓</button>
+  </div>
+
+  <!-- панель квестов (трекер) -->
+  <div id="quest-tracker">
+    <div id="quest-tracker-head">Задания</div>
+    <div id="quest-tracker-body"><div id="quest-log"></div></div>
+  </div>
+
+  <!-- подсказки взаимодействия -->
+  <div id="interact-hint" class="hint-float hidden"></div>
+  <div id="forge-hint" class="hint-float hidden" style="top:64%">Рядом горн Дормира — [F] открыть кузницу</div>
+
+  <!-- экшен-бар -->
+  <div id="action-bar"></div>
+
+  <!-- чат -->
+  <div id="chat-box">
+    <div id="chat-log"></div>
+    <input id="chat-input" placeholder="Написать в общий канал… (Enter)" autocomplete="off">
+  </div>
+
+  <!-- тосты / лут -->
+  <div id="toasts"></div>
+  <div id="loot-popup"></div>
+
+  <!-- ПАНЕЛИ -->
+  <div id="panel-inventory" class="panel">
+    <div class="panel-head"><b>Инвентарь</b><button class="panel-close">✕</button></div>
+    <div id="equip-slots" class="equip-slots"></div>
+    <div id="inv-grid" class="inv-grid"></div>
+    <div class="panel-foot">Золото: <span id="inv-gold"></span> · клик по предмету — экипировать/использовать</div>
+  </div>
+
+  <div id="panel-character" class="panel">
+    <div class="panel-head"><b>Герой</b><button class="panel-close">✕</button></div>
+    <div id="char-detail"></div>
+    <div id="stat-list"></div>
+    <div id="derived-stats" class="derived"></div>
+  </div>
+
+  <div id="panel-spells" class="panel">
+    <div class="panel-head"><b>Книга умений</b><button class="panel-close">✕</button></div>
+    <div id="spell-list"></div>
+  </div>
+
+  <div id="panel-quests" class="panel">
+    <div class="panel-head"><b>Журнал заданий</b><button class="panel-close">✕</button></div>
+    <div id="panel-quests-body"></div>
+  </div>
+
+  <div id="panel-help" class="panel">
+    <div class="panel-head"><b>Справка заставы</b><button class="panel-close">✕</button></div>
+    <div class="help-body">
+      <p><b>Управление:</b></p>
+      <ul>
+        <li>WASD / стрелки — идти (относительно камеры)</li>
+        <li>ЛКМ по врагу — выбрать и рубить; зажать — автоатака</li>
+        <li>ЛКМ по земле — идти к точке</li>
+        <li>ПКМ + тянуть — вращать камеру; колесо — приближение</li>
+        <li>1–5, Q — способности; Tab — следующая цель</li>
+        <li>F — говорить с жителем / открыть горн</li>
+        <li>I — инвентарь, C — герой, K — умения, J — задания, Enter — чат</li>
+        <li>Эмоции в чате: /поклон, /крик, /смех, /драться, /танец</li>
+      </ul>
+      <p><b>Ночное кузнечное дело:</b> мобы роняют железную руду и лунный камень. У горна Дормира ([F]) выкуй клинок Malamur или Латы Заставы.</p>
+      <p><b>Босс:</b> Надзиратель Ночи бродит у западного кургана. При нём — свиток Кузнечного Дела и легендарное оружие.</p>
+      <p><b>MMO-слой:</b> другие «игроки» и общий чат работают через WebSocket; без ?server=ws://… запускается локальная симуляция мира.</p>
+    </div>
+  </div>
+
+  <!-- диалог NPC -->
+  <div id="dialog" class="hidden">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <div id="dialog-npc-name"></div>
+        <div id="dialog-role"></div>
+      </div>
+      <div id="dialog-text"></div>
+      <div id="dialog-options"></div>
+    </div>
+  </div>
+
+  <!-- КУЗНИЦА -->
+  <div id="forge" class="hidden">
+    <div class="forge-inner">
+      <div class="panel-head"><b>🔥 Горн Дормира — Ночное Кузнечное Дело</b><button class="panel-close" onclick="document.getElementById('forge').classList.add('hidden')">✕</button></div>
+      <div id="forge-mats" class="forge-mats"></div>
+      <div id="recipe-list"></div>
+      <div class="forge-note">Молот бьёт только ночью. Не подведи заставу.</div>
+    </div>
+  </div>
+
+  <!-- СМЕРТЬ -->
+  <div id="death-overlay" class="hidden">
+    <div class="death-inner">
+      <h2>Ты пал этой ночью</h2>
+      <p>Но горн ещё тёплый. Заставе нужен молот.</p>
+      <button id="btn-respawn">Восстать у костра</button>
+    </div>
+  </div>
+
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
