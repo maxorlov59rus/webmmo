@@ -16,6 +16,7 @@
 'use strict';
 
 const path = require('path');
+require('./env');                            // загружаем server/.env до остального
 const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
@@ -140,7 +141,9 @@ app.get('/api/worlds', async (_req, res) => {
 
 // ---- персонажи (нужен токен аккаунта) ----
 // простой токен: base64(email:id:hmac). Секрет генерируется при старте.
-const SECRET = crypto.randomBytes(16).toString('hex');
+// Секрет подписи токенов: берём из .env (TOKEN_SECRET), иначе стабильный
+// по умолчанию — токены переживают перезапуск сервера.
+const SECRET = process.env.TOKEN_SECRET || 'nvr-dev-secret-change-me';
 function makeToken(acc) {
   const raw = `${acc.email}:${acc.id}`;
   const sig = crypto.createHmac('sha256', SECRET).update(raw).digest('hex').slice(0, 32);
@@ -267,8 +270,11 @@ wss.on('connection', (ws) => {
 });
 
 setInterval(() => {                     // heartbeat: отвалившиеся соединения
-  for (const ws of wss.clients) if (ws.isAlive === false) { ws.terminate(); continue; }
-  ws.isAlive = false; try { ws.ping(); ws.once('pong', () => ws.isAlive = true); } catch (_) {}
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    try { ws.ping(); ws.once('pong', () => { ws.isAlive = true; }); } catch (_) {}
+  }
 }, 30000);
 
 // ------------------------------- старт -------------------------------------
