@@ -21,18 +21,21 @@ LOC_NAMES = {
 }
 
 async def shot(page, name):
+    """SwiftShader рендерит медленно — screenshot() по элементу/странице таймаутится.
+    Забираем кадр прямо из WebGL-canvas через toDataURL и сохраняем на диск."""
     path = f"{OUT}/{name}.png"
-    # в swiftshader кадры долгие — снимаем canvas напрямую с таймаутом и запасным вариантом
-    try:
-        el = await page.query_selector("#gl")
-        if el:
-            await el.screenshot(path=path, timeout=15000)
-        else:
-            raise RuntimeError("no canvas")
-    except Exception as e:
-        print("canvas shot failed, fallback fullpage:", str(e)[:80])
-        await page.screenshot(path=path, timeout=25000, animations="disabled")
-    print("shot:", path)
+    data = await page.evaluate("""()=>{
+        const c = document.getElementById('gl');
+        return c ? c.toDataURL('image/png') : null;
+    }""")
+    if not data:
+        print("no canvas for", name); return False
+    import base64
+    raw = base64.b64decode(data.split(',', 1)[1])
+    with open(path, 'wb') as f:
+        f.write(raw)
+    print("shot:", path, len(raw)//1024, "KB")
+    return True
 
 async def main():
     async with async_playwright() as p:
