@@ -444,11 +444,21 @@ export class Game {
     return q.progress >= (st.count || 1);
   }
   onQuestEvent(type, payload) {
+    // 'kill_instance' — убийства внутри текущего забега (instances.js шлёт тип 'instance')
+    const inRun = type === 'instance' ? (this.inst?.run?.def?.id || null) : null;
     for (const q of this.char.quests) {
       const def = this.questDef(q.id);
       const st = def.steps[q.step];
       if (!st) continue;
-      if (st.type === type && ((payload.mob && st.mob === payload.mob) || (payload.item && st.item === payload.item) || (payload.npc && st.npc === payload.npc))) {
+      let match = false;
+      if (type === 'instance' && isInstanceQuestStep(st)) {
+        // засчитываем только если забег совпадает с инстансом квеста (или инстанс не указан)
+        const wantInst = st.inst || q.inst || null;
+        match = (!wantInst || wantInst === inRun) && (!payload.mob || st.mob === payload.mob);
+      } else if (st.type === type) {
+        match = (payload.mob && st.mob === payload.mob) || (payload.item && st.item === payload.item) || (payload.npc && st.npc === payload.npc);
+      }
+      if (match) {
         q.progress += payload.count || 1;
         if (q.progress >= (st.count || 1)) {
           q.step++; q.progress = 0;
