@@ -188,3 +188,105 @@ CREATE TABLE IF NOT EXISTS character_quests (
   CONSTRAINT fk_cq_char  FOREIGN KEY (char_id)  REFERENCES characters(id) ON DELETE CASCADE,
   CONSTRAINT fk_cq_quest FOREIGN KEY (quest_id) REFERENCES quests(id)
 ) ENGINE=InnoDB;
+
+-- ============================================================
+--  СПРАВОЧНИКИ ИГРОВОГО СОДЕРЖИМОГО (визуализация в клиенте и ГМ-панели)
+--  Заполняются автоматически: сервером при старте и tools/gen_db_content.py при установке.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS locations (
+  id         VARCHAR(32) PRIMARY KEY,
+  name       VARCHAR(96) NOT NULL,
+  anchor_x   INT NOT NULL DEFAULT 0,
+  anchor_z   INT NOT NULL DEFAULT 0,
+  radius     INT NOT NULL DEFAULT 45,
+  biome      VARCHAR(32) NOT NULL DEFAULT 'nightsite',
+  description VARCHAR(255) NULL,
+  mob_keys   VARCHAR(128) NULL,               -- csv: wolf,skeleton,...
+  npc_ids    VARCHAR(128) NULL               -- csv: dormir,ilva,...
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS mobs (
+  id         VARCHAR(32) PRIMARY KEY,
+  name       VARCHAR(64) NOT NULL,
+  level      TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  hp         INT UNSIGNED NOT NULL DEFAULT 40,
+  dmg_min    SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  dmg_max    SMALLINT UNSIGNED NOT NULL DEFAULT 5,
+  xp         INT UNSIGNED NOT NULL DEFAULT 10,
+  family     VARCHAR(24) NOT NULL DEFAULT 'beast',
+  is_boss    TINYINT(1) NOT NULL DEFAULT 0,
+  loot_json  TEXT NULL                        -- [["item_id",chance],...]
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS items (
+  id         VARCHAR(32) PRIMARY KEY,
+  name       VARCHAR(64) NOT NULL,
+  kind       VARCHAR(24) NOT NULL DEFAULT 'material',
+  rarity     TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  price      INT UNSIGNED NOT NULL DEFAULT 1,
+  stats_json TEXT NULL,
+  icon       VARCHAR(16) NOT NULL DEFAULT '◆'
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS npcs (
+  id         VARCHAR(32) PRIMARY KEY,
+  name       VARCHAR(64) NOT NULL,
+  role       VARCHAR(96) NOT NULL DEFAULT '',
+  faction    VARCHAR(16) NOT NULL DEFAULT 'forge',
+  loc        VARCHAR(32) NOT NULL,
+  offset_x   INT NOT NULL DEFAULT 0,
+  offset_z   INT NOT NULL DEFAULT 0,
+  dialog_json TEXT NULL,                      -- массив реплик на русском
+  quests_csv  TEXT NULL                       -- csv id квестов
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS factions (
+  id         VARCHAR(16) PRIMARY KEY,
+  name       VARCHAR(96) NOT NULL,
+  ideology   VARCHAR(190) NOT NULL DEFAULT '',
+  color      CHAR(7) NOT NULL DEFAULT '#ffffff'
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS classes (
+  id         VARCHAR(24) PRIMARY KEY,
+  name       VARCHAR(64) NOT NULL,
+  faction    VARCHAR(16) NOT NULL,
+  role       VARCHAR(24) NOT NULL DEFAULT 'dd',
+  primary_stat VARCHAR(8) NOT NULL DEFAULT 'might',
+  color      CHAR(7) NOT NULL DEFAULT '#ffd24a',
+  descr      VARCHAR(255) NOT NULL DEFAULT ''
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS recipes (
+  id         VARCHAR(24) PRIMARY KEY,
+  result     VARCHAR(32) NOT NULL,
+  req_level  TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  mats_json  TEXT NOT NULL,
+  craft_time REAL NOT NULL DEFAULT 2.5
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS abilities (
+  id         VARCHAR(24) PRIMARY KEY,
+  name       VARCHAR(64) NOT NULL,
+  cls        VARCHAR(24) NOT NULL,
+  cost_mp    SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  cooldown   REAL NOT NULL DEFAULT 5,
+  descr      VARCHAR(190) NOT NULL DEFAULT ''
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS inventory (
+  char_id    INT UNSIGNED NOT NULL,
+  item_id    VARCHAR(32) NOT NULL,
+  qty        INT UNSIGNED NOT NULL DEFAULT 1,
+  slot       VARCHAR(16) NOT NULL DEFAULT '',
+  PRIMARY KEY (char_id, item_id, slot),
+  CONSTRAINT fk_inv_char FOREIGN KEY (char_id) REFERENCES characters(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS instance_deaths (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  lock_id    BIGINT UNSIGNED NOT NULL,
+  char_name  VARCHAR(32) NOT NULL,
+  wave_no    TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  ts         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
