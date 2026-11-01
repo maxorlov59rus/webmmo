@@ -193,6 +193,7 @@ export class Game {
         for (let i = 0; i < n; i++) {
           const a = rand(0, Math.PI * 2), r = rand(loc.safe ? 4 : 6, rad);
           const m = this.spawnMob(typeId, cx + Math.cos(a) * r, cz + Math.sin(a) * r);
+          m.loc = loc.id;
           if (respawnTweak) m.respawnDelay = Math.max(8, respawnTweak);
           placed.push(m);
         }
@@ -202,7 +203,8 @@ export class Game {
     if (!placed.length) {
       for (let i = 0; i < 10; i++) {
         const a = rand(0, Math.PI * 2), r = rand(20, 40);
-        this.spawnMob('wolf', Math.cos(a) * r, Math.sin(a) * r);
+        const m = this.spawnMob('wolf', Math.cos(a) * r, Math.sin(a) * r);
+        m.loc = 'outpost';
       }
     }
     // Скелеты у кострищ — классика Ночной Заставы
@@ -210,14 +212,35 @@ export class Game {
       const n = 2 + Math.floor(rand(0, 2));
       for (let i = 0; i < n; i++) {
         const px = bf.group.position.x + rand(-5, 5), pz = bf.group.position.z + rand(-5, 5);
-        this.spawnMob('skeleton', px, pz);
+        const m = this.spawnMob('skeleton', px, pz);
+        m.loc = (locationAt(px, pz) || { id: 'outpost' }).id;
       }
     }
     // Босс локации Пепельного Поля (или дежильная точка, если её нет в мире)
     const ash = locationById('ashfields');
     const bossHome = ash ? { x: ash.anchor[0] * 10, z: ash.anchor[1] * 10 } : { x: -42, z: -38 };
     this.bossHome = bossHome;
-    this.spawnMob('overseer', bossHome.x, bossHome.z);
+    const overseer = this.spawnMob('overseer', bossHome.x, bossHome.z);
+    overseer.loc = 'ashfields';
+    // Второй босс — Инквизитор Эонглор (квест q_inquisitor), тоже на Пепельном Поле
+    if (ash) {
+      const inq = this.spawnMob('inquisitor', bossHome.x + 9, bossHome.z - 7);
+      inq.loc = 'ashfields';
+    }
+  }
+
+  // Телепорт к локации (ГМ-команда /tp и кнопка карты)
+  teleportToLocation(locId) {
+    const L = LOCATIONS[locId] || locationById(locId);
+    if (!L) return false;
+    const x = L.anchor[0] * 10, z = L.anchor[1] * 10;
+    this.char.pos.set(x, heightAt(x, z, this.seed), z);
+    if (this.playerParts) this.playerParts.root.position.copy(this.char.pos);
+    this.target = null;
+    this.updateCamera(0);
+    this.ui.toast(`${L.icon} ${L.name}`, L.color);
+    this.ui.addChat(`Перемещение: ${L.name} (ур. ${L.levelRange[0]}–${L.levelRange[1]}${L.safe ? ', безопасная зона' : ''}).`, '#ffd97a');
+    return true;
   }
 
   spawnMob(typeId, x, z) {
@@ -666,13 +689,96 @@ export class Game {
 
   sendChat(text) {
     if (text.startsWith('/')) {
-      const cmd = text.slice(1);
+      const cmd = text.slice(1).trim();
+      // --- ГМ-команды ---
+      if (cmd.startsWith('gm ')) { this.gmCommand(cmd.slice(3)); return; }
+      if (cmd.startsWith('tp ') || cmd === 'tp') {
+        const arg = cmd.slice(2).trim();
+        if (this.gmLevel >= 2) { this.doTp(arg); return; }
+        this.ui.addChat('«/tp» — привилегия хранителей ночи (ГМ 2+).', '#ff8a8a');
+        return;
+      }
       const known = ['поклон', 'крик', 'смех', 'драться', 'танец', 'присесть'];
       const em = known.find(k => cmd.startsWith(k));
       if (em) { this.ui.addChat(`${this.char.name} ${cmd}`, '#b8c4d8', '/эмоция'); this.net.sendEmote(em); this.fx.floatText(this.char.pos, em, '#b8c4d8'); return; }
+      // неизвестная слэш-команда: если есть соединение — пробуем отправить как ГМ-команду ядру
+      if (this.net && this.net.mode === 'live') { this.net.sendChat(text); return; }
     }
     this.ui.addChat(text, '#ffffff', `[${this.char.name}]`);
     this.net.sendChat(text);
+  }
+
+  doTp(arg) {
+    // /tp <локация|номер|игрок>
+    if (!arg) {
+      const list = LOCATION_KEYS.map((k, i) => `${i + 1}) ${LOCATIONS[k].name}`).join(' · ');
+      this.ui.addChat(`Куда телепортировать? /tp <№|имя>: ${list}`, '#ffd97a');
+      return;
+    }
+    const idx = parseInt(arg, 10);
+    let locId = null;
+    if (!isNaN(idx) && LOCATION_KEYS[idx - 1]) locId = LOCATION_KEYS[idx - 1];
+    else {
+      const q = arg.toLowerCase();
+      locId = LOCATION_KEYS.find(k => k === q || LOCATIONS[k].name.toLowerCase().includes(q)) || null;
+    }
+    if (locId && this.teleportToLocation(locId)) return;
+    // телепорт к игроку (удалённый или локальный «бот»)
+    const rp = [...(this.remotePlayers ? this.remotePlayers.values() : [])]
+      .find(r => r.name && r.name.toLowerCase().startsWith(q));
+    if (rp) {
+      const p = rp.targetPos || rp.parts.root.position;
+      this.char.pos.set(p.x, heightAt(p.x, p.z, this.seed), p.z);
+      this.playerParts.root.position.copy(this.char.pos);
+      this.updateCamera(0);
+      this.ui.addChat(`Телепорт к ${rp.name}.`, '#ffd97a');
+      return;
+    }
+    this.ui.addChat(`Неизвестная локация или игрок: «${arg}».`, '#ff8a8a');
+  }
+
+  gmCommand(raw) {
+    const parts = raw.split(/\s+/);
+    const c0 = (parts[0] || '').toLowerCase();
+    if (c0 === 'help') {
+      this.ui.addChat('ГМ: /gm kick <им> · /gm ban <им> [причина] · /gm unban <им> · /gm announce <текст> · /gm notice <текст> · /gm xp <кол-во> [им] · /gm tp <локация|им> · /gm spawn <моб> [кол-во] · /gm locs · /gm who · /gm audit', '#ff9a9a');
+      return;
+    }
+    if (c0 === 'locs') {
+      for (const k of LOCATION_KEYS) {
+        const L = LOCATIONS[k];
+        this.ui.addChat(`${L.icon} ${L.name} — ур. ${L.levelRange[0]}–${L.levelRange[1]}, мобов в спавне: ${(L.spawns || []).reduce((s, x) => s + (x[1] || 1), 0)}, NPC: ${(L.npcs || []).length}${L.safe ? ' [безопасно]' : ''}`, '#b8c4d8');
+      }
+      return;
+    }
+    if (c0 === 'tp') { this.doTp(parts.slice(1).join(' ')); return; }
+    if (c0 === 'spawn') {
+      const typeId = parts[1];
+      const n = Math.min(20, parseInt(parts[2] || '1', 10) || 1);
+      if (!MOBS[typeId]) { this.ui.addChat(`Нет такого моба: ${typeId}. Есть: ${Object.keys(MOBS).join(', ')}`, '#ff8a8a'); return; }
+      for (let i = 0; i < n; i++) {
+        const a = rand(0, 6.28), r = rand(4, 9);
+        this.spawnMob(typeId, this.char.pos.x + Math.cos(a) * r, this.char.pos.z + Math.sin(a) * r);
+      }
+      this.ui.addChat(`Заселено: ${MOBS[typeId].name} ×${n}.`, '#ffd97a');
+      return;
+    }
+    if (['kick', 'ban', 'unban', 'announce', 'notice', 'xp'].includes(c0)) {
+      // эти команды уходят на ядро сервера (там проверяются права и пишется audit_log)
+      if (this.net && this.net.mode === 'live') {
+        this.net.sendChat('/gm ' + raw);
+        this.ui.addChat('Команда отправлена ядру сервера.', '#b8c4d8');
+      } else {
+        this.ui.addChat('Сервер не подключен — ГМ-команды управления доступны только в live-режиме (?api=...).', '#ff8a8a');
+      }
+      return;
+    }
+    if (c0 === 'who' || c0 === 'audit') {
+      if (this.net && this.net.mode === 'live') { this.net.sendChat('/gm ' + c0); this.ui.addChat(`Запрос «${c0}» отправлен ядру.`, '#b8c4d8'); }
+      else this.ui.addChat('Локальная симуляция: список онлайн недоступен без сервера.', '#ff8a8a');
+      return;
+    }
+    this.ui.addChat(`Неизвестная ГМ-команда: /gm ${c0}. Список: /gm help`, '#ff8a8a');
   }
 
   // --- Главный цикл ------------------------------------------------------------------
@@ -831,6 +937,23 @@ export class Game {
     for (const bf of this.world.bonfires) {
       bf.light.intensity = bf.base + Math.sin(this.time * 6) * 0.4 + rand(-0.1, 0.1);
       bf.flame.scale.y = 2.0 + Math.sin(this.time * 7) * 0.3;
+    }
+    // анимация локаций: подъёмник, пар, фонари причалов, тлеющая зола
+    if (this.world.mineWheel) {
+      this.world.mineWheel.rotation.z = this.time * 0.9;
+      if (this.world.mineCage) this.world.mineCage.position.y = 1.2 + Math.sin(this.time * 0.55) * 1.1;
+    }
+    if (this.world.steam) {
+      const s = (this.time * 0.7) % 1;
+      this.world.steam.material.opacity = 0.5 * (1 - s);
+      this.world.steam.position.y += 0.012;
+      if (s < 0.02) this.world.steam.userData = null;
+    }
+    for (const dm of (this.world.dockMasts || [])) {
+      dm.light.intensity = dm.base + Math.sin(this.time * 5 + dm.phase) * 0.3;
+    }
+    for (const em of (this.world.embers || [])) {
+      em.material.opacity = 0.55 + Math.sin(this.time * 3 + em.position.x) * 0.35;
     }
     // подсветка цели
     for (const m of this.mobs) {
