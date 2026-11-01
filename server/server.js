@@ -26,6 +26,25 @@ const ROOT = path.join(__dirname, '..');           // корень проект�
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const NO_DB = process.env.NO_DB === '1';
 
+// ----------------------- конфигурация рейтов/лимитов ----------------------
+const CFG = {
+  WS_PATH:        process.env.WS_PATH || '/ws',
+  TICK_MS:        Math.max(16, parseInt(process.env.TICK_MS || '50', 10)),
+  MOVE_RATE_HZ:   Math.max(1, parseInt(process.env.MOVE_RATE_HZ || '15', 10)),
+  CHAT_RATE_PER_S:Math.max(0, parseInt(process.env.CHAT_RATE_PER_S || '2', 10)),
+  MAX_PLAYERS_WS: Math.max(1, parseInt(process.env.MAX_PLAYERS_WS || '200', 10)),
+  HEARTBEAT_MS:   Math.max(5000, parseInt(process.env.HEARTBEAT_MS || '30000', 10)),
+  IDLE_TIMEOUT_MS:Math.max(10000, parseInt(process.env.IDLE_TIMEOUT_MS || '90000', 10)),
+  SAVE_EVERY_S:   Math.max(5, parseInt(process.env.SAVE_EVERY_S || '30', 10)),
+  PUBLIC_MODE:    process.env.PUBLIC_MODE === '1',
+  ALLOW_REG:      process.env.ALLOW_REG !== '0',
+  LOG_LEVEL:      process.env.LOG_LEVEL || 'info',
+};
+const BIND_ADDR = CFG.PUBLIC_MODE ? '0.0.0.0' : '127.0.0.1';
+const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
+const log = (...a) => { if (LEVELS[CFG.LOG_LEVEL] <= 1) console.log(...a); };
+const warn = (...a) => { if (LEVELS[CFG.LOG_LEVEL] <= 2) console.warn(...a); };
+
 // ------------------------------- БД ---------------------------------------
 let pool = null;                                   // mysql2 promise pool
 const mem = {                                      // фолбэк-хранилище (NO_DB=1)
@@ -97,10 +116,11 @@ const app = express();
 app.use(express.json({ limit: '256kb' }));
 app.use(express.static(ROOT));                    // сам отдаём клиент из корня проекта
 
-app.get('/api/ping', (_req, res) => res.json({ ok: true, name: 'Ночь Военного Ремесла', time: Date.now() }));
+app.get('/api/ping', (_req, res) => res.json({ ok: true, name: 'Ночь Военного Ремесла', time: Date.now(), online: online ? online.size : 0 }));
 
 app.post('/api/register', async (req, res) => {
   try {
+    if (!CFG.ALLOW_REG) return res.status(403).json({ error: 'Регистрация закрыта администратором сервера.' });
     const { email, password, nick } = req.body || {};
     if (!validEmail(email)) return res.status(400).json({ error: 'E-mail выглядит неполным.' });
     if ((password || '').length < 6) return res.status(400).json({ error: 'Пароль — минимум 6 символов.' });
@@ -209,8 +229,20 @@ app.post('/api/character/:world', authTok, async (req, res) => {
 // --------------------------- WebSocket MMO --------------------------------
 // протокол совпадает с src/game/net.js PROTO: hello/welcome/spawn/despawn/move/chat/emote
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: CFG.WS_PATH });
 const online = new Map();                          // socket -> {name, cls, x, z, worldId}
+
+// ---------------------- анти-флуд / рейт-лимиты ---------------------------
+class TokenBucket {
+  constructor(ratePerSec, burst) { this.rate = ratePerSec; this.cap = Math.max(1, burst); this.tokens = this.cap; this.t = Date.now(); }
+  take(n = 1) {
+    const now = Date.now();
+    this.tokens = Math.min(this.cap, this.tokens + ((now - this.t) / 1000) * this.rate);
+    this.t = now;
+    if (this.tokens >= n) { this.tokens -= n; return true; }
+    return false;
+  }
+}
 
 function wsSend(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 function broadcast(sender, obj, sameWorldOnly = true) {
@@ -222,11 +254,26 @@ function broadcast(sender, obj, sameWorldOnly = true) {
 }
 
 wss.on('connection', (ws) => {
+  // лимит одновременных соединений
+  if (online.size >= CFG.MAX_PLAYERS_WS) {
+    wsSend(ws, { type: 'error', error: 'Сервер переполнен: достигнут максимум игроков онлайн.' });
+    setTimeout(() => ws.close(1013, 'full'), 200);
+    return;
+  }
   let me = null;
+  const buckets = {
+    move: new TokenBucket(CFG.MOVE_RATE_HZ, CFG.MOVE_RATE_HZ * 2),
+    chat: new TokenBucket(CFG.CHAT_RATE_PER_S || 0.0001, Math.max(2, (CFG.CHAT_RATE_PER_S || 1) * 2)),
+    any:  new TokenBucket(80, 160),                  // общий лимит пакетов
+  };
+  ws.__lastMsg = Date.now();
   ws.on('message', (buf) => {
+    ws.__lastMsg = Date.now();
+    if (!buckets.any.take()) return;                 // грубый флуд — тихо режем
     let m; try { m = JSON.parse(buf.toString()); } catch (_) { return; }
     switch (m.type) {
       case 'hello': {
+        if (me) return;                              // повторный hello игнорируем
         me = { name: String(m.name || 'Странник').slice(0, 16), worldId: m.world || 'nwm-1', x: 0, z: 0, level: m.level || 1, cls: m.cls || 'warden' };
         online.set(ws, me);
         // шлём всем уже присутствующим о новичке
@@ -241,12 +288,14 @@ wss.on('connection', (ws) => {
       }
       case 'move': {
         if (!me) return;
+        if (!buckets.move.take()) return;            // превышен MOVE_RATE_HZ — пакет отброшен
         me.x = +m.x || 0; me.z = +m.z || 0; me.r = +m.r || 0;
         broadcast(ws, { type: 'move', id: ws.__id, x: me.x, z: me.z, r: me.r });
         break;
       }
       case 'chat': {
         if (!me) return;
+        if (!buckets.chat.take()) { wsSend(ws, { type: 'notice', text: 'Слишком часто — подожди мгновение.' }); return; }
         const text = String(m.text || '').slice(0, 200);
         if (!text) return;
         broadcast(null, { type: 'chat', author: me.name, text, channel: m.channel || 'global', color: '#cfe3ff' });
@@ -269,22 +318,30 @@ wss.on('connection', (ws) => {
   });
 });
 
-setInterval(() => {                     // heartbeat: отвалившиеся соединения
+setInterval(() => {                     // heartbeat + idle-таймаут (настраиваемые)
+  const now = Date.now();
   for (const ws of wss.clients) {
     if (ws.isAlive === false) { ws.terminate(); continue; }
+    if (now - (ws.__lastMsg || now) > CFG.IDLE_TIMEOUT_MS) { ws.close(1000, 'idle'); continue; }
     ws.isAlive = false;
     try { ws.ping(); ws.once('pong', () => { ws.isAlive = true; }); } catch (_) {}
   }
-}, 30000);
+}, CFG.HEARTBEAT_MS);
+
+// игровой тик: серверное состояние мира (позже — единый источник истины для мобов/лутов)
+let tickN = 0;
+setInterval(() => { tickN++; }, CFG.TICK_MS);
 
 // ------------------------------- старт -------------------------------------
 (async () => {
   await initDb();
-  server.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, BIND_ADDR, () => {
     console.log('============================================================');
     console.log(`  Ночь Военного Ремесла — сервер: http://localhost:${PORT}`);
-    console.log(`  Клиент с живой сетью: http://localhost:${PORT}/?api=http://localhost:${PORT}&server=ws://localhost:${PORT}/ws`);
-    console.log(`  База данных: ${NO_DB ? 'память (NO_DB=1)' : 'MySQL'} · WS-игра: /ws · онлайн: ${online.size}`);
+    console.log(`  Клиент с живой сетью: http://localhost:${PORT}/?api=http://localhost:${PORT}&server=ws://localhost:${PORT}${CFG.WS_PATH}`);
+    console.log(`  База данных: ${NO_DB ? 'память (NO_DB=1)' : 'MySQL'} · WS-игра: ${CFG.WS_PATH} · онлайн: ${online.size}`);
+    console.log(`  Рейты: tick=${CFG.TICK_MS}ms move=${CFG.MOVE_RATE_HZ}/s chat=${CFG.CHAT_RATE_PER_S}/s max=${CFG.MAX_PLAYERS_WS} hb=${CFG.HEARTBEAT_MS}ms`);
+    console.log(`  Привязка: ${BIND_ADDR}:${PORT} (${CFG.PUBLIC_MODE ? 'ПУБЛИЧНЫЙ режим' : 'только localhost'}) · регистрация: ${CFG.ALLOW_REG ? 'открыта' : 'закрыта'}`);
     console.log('============================================================');
   });
 })().catch((e) => { console.error('Старт не удался:', e.message); process.exit(1); });
