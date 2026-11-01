@@ -1011,8 +1011,57 @@ async function ensureAutoGm() {
   }
 }
 
+// ---------- Наполнение справочников игры из контента клиента (идемпотентно) ----------
+async function seedContentTables() {
+  if (!pool) return;
+  const file = path.join(__dirname, 'content_export.json');
+  if (!require('fs').existsSync(file)) { console.warn('[db] content_export.json нет — справочники не засеяны (запустите: node tools/export_content.mjs)'); return; }
+  const C = JSON.parse(require('fs').readFileSync(file, 'utf8'));
+  const esc = (s) => s == null ? '' : String(s);
+  try {
+    for (const [id, f] of Object.entries(C.factions || {}))
+      await q(`INSERT INTO factions (id,name,ideology,color) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), ideology=VALUES(ideology), color=VALUES(color)`,
+        [id, esc(f.name), esc((f.motto || '') + ' ' + (f.desc || '')).slice(0, 190), esc(f.color)]);
+    for (const [id, c] of Object.entries(C.classes || {}))
+      await q(`INSERT INTO classes (id,name,faction,role,primary_stat,color,descr) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), descr=VALUES(descr)`,
+        [id, esc(c.name), esc(c.faction || 'forge'), esc(c.tag || 'dd'), esc(Object.keys(c.base||{}).sort((a,b)=>c.base[b]-c.base[a])[0]||'might'), esc(c.color), esc((c.desc||'')+' '+(c.tag||'')).slice(0,255)]);
+    for (const [id, l] of Object.entries(C.locations || {}))
+      await q(`INSERT INTO locations (id,name,anchor_x,anchor_z,radius,biome,description,mob_keys,npc_ids) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), mob_keys=VALUES(mob_keys), npc_ids=VALUES(npc_ids)`,
+        [id, esc(l.name), (l.anchor?.[0] ?? 0) * 10, (l.anchor?.[1] ?? 0) * 10, l.radius || 45, esc(l.biome || 'nightsite'), esc(l.desc).slice(0,255),
+         (l.spawns||[]).map(s=>s[0]).join(','), (l.npcs||[]).join(',')]);
+    for (const [id, mb] of Object.entries(C.mobs || {}))
+      await q(`INSERT INTO mobs (id,name,level,hp,dmg_min,dmg_max,xp,family,is_boss,loot_json) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), hp=VALUES(hp), loot_json=VALUES(loot_json)`,
+        [id, esc(mb.name), mb.level||1, mb.hp||40, mb.dmg?.[0]||1, mb.dmg?.[1]||5, mb.xp||10, esc(mb.shape||'beast'), mb.boss?1:0, JSON.stringify(mb.loot||[])]);
+    for (const [id, it] of Object.entries(C.items || {}))
+      await q(`INSERT INTO items (id,name,kind,rarity,price,stats_json,icon) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), stats_json=VALUES(stats_json)`,
+        [id, esc(it.name), it.mat?'material':(it.slot==='none'?'consumable':esc(it.slot)), it.rarity||1, Math.round((it.dmg?.[1]||0)*3 + (it.rarity||1)*5) || 1, JSON.stringify({slot:it.slot, dmg:it.dmg, mods:it.mods, lore:it.lore}), '◆']);
+    for (const [id, n] of Object.entries(C.npcs || {}))
+      await q(`INSERT INTO npcs (id,name,role,faction,loc,offset_x,offset_z,dialog_json,quests_csv) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE role=VALUES(role), dialog_json=VALUES(dialog_json), quests_csv=VALUES(quests_csv)`,
+        [id, esc(n.name), esc(n.role), esc(n.faction), esc(n.loc), n.offset?.[0]||0, n.offset?.[1]||0, JSON.stringify((C.dialogs||{})[id]||[]), (n.quests||[]).join(',')]);
+    for (const r of (Array.isArray(C.recipes)?C.recipes:Object.values(C.recipes)))
+      await q(`INSERT INTO recipes (id,result,req_level,mats_json,craft_time) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE mats_json=VALUES(mats_json)`,
+        [esc(r.id||r.out), esc(r.out), r.reqLevel||1, JSON.stringify(r.mats||{}), r.time||2.5]);
+    for (const a of (Array.isArray(C.abilities)?C.abilities:Object.values(C.abilities)))
+      await q(`INSERT INTO abilities (id,name,cls,cost_mp,cooldown,descr) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), descr=VALUES(descr)`,
+        [esc(a.id), esc(a.name), esc(a.class||'any'), a.cost?.mp||0, a.cd||5, esc(a.desc).slice(0,190)]);
+    // Квесты: все 369 (ручные + генерированные), с диалогами-подсказками и наградами
+    for (const qq of (C.allQuests||[]))
+      await q(`INSERT INTO quests (id,name,quest_lvl,loc,giver,chain,hint,steps_json,reward_json,is_instance) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), hint=VALUES(hint), steps_json=VALUES(steps_json), reward_json=VALUES(reward_json)`,
+        [qq.id, esc(qq.name), qq.level||qq.quest_lvl||1, esc(qq.loc), esc(qq.giver), esc(qq.chain||null), esc(qq.hint).slice(0,255),
+         JSON.stringify(qq.steps||[]), JSON.stringify(qq.reward||{}), /инстанс/i.test(JSON.stringify(qq.steps)+ (qq.hint||'')) ? 1 : 0]);
+    for (const i of (C.instances||[]))
+      await q(`INSERT INTO instances (id,num,name,theme,base_loc,difficulty,size,level_min,level_max,waves,boss_mob,timer_min,key_req,reward_xp,reward_gold,loot_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name), level_min=VALUES(level_min), level_max=VALUES(level_max), loot_json=VALUES(loot_json)`,
+        [i.id, i.num, esc(i.name), esc(i.theme), esc(i.baseLoc), i.diff, i.size, i.levelMin, i.levelMax, i.waves, esc(i.boss), i.timerMin, i.keyReq, i.rewards.xp, i.rewards.gold, JSON.stringify(i.rewards.loot||[])]);
+    const cnt = {};
+    for (const t of ['factions','classes','locations','mobs','items','npcs','recipes','abilities','quests','instances'])
+      cnt[t] = ((await q(`SELECT COUNT(*) n FROM ${t}`)) || [{n:0}])[0]?.n ?? '?';
+    console.log('[db] справочники наполнены:', JSON.stringify(cnt));
+  } catch (e) { console.warn('[db] seedContentTables:', e.message); }
+}
+
 (async () => {
   await initDb();
+  await seedContentTables();
   await loadGmTable();
   await ensureAutoGm();
   await loadChatSettings();
