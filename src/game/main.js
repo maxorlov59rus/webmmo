@@ -8,7 +8,7 @@ import { buildHumanoid, buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimControl
 import { CombatFX, rollPlayerDamage, rollMobDamage } from './combat.js';
 import { NetClient } from './net.js';
 import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, countItem, equip, unequip, useConsumable, knownAbilities, serialize, deserialize, loadAccount, saveAccount } from './character.js';
-import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT, LOCATIONS, LOCATION_KEYS, locationById, locationAt, locationsForWorld } from '../data/consts.js';
+import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT, LOCATIONS, LOCATION_KEYS, locationById, locationAt, locationsForWorld, questByIdG, questsForNpcG, isInstanceQuestStep } from '../data/consts.js';
 import { appearanceToMeshOpts } from '../data/appearance.js';
 import { UI } from '../ui/hud.js';
 import { ServerSync } from '../ui/auth.js';
@@ -402,11 +402,20 @@ export class Game {
     const lines = DIALOGS[npcDef.id] || ['...'];
     const intro = lines[Math.floor(Math.random() * lines.length)];
     const actions = [];
-    for (const qid of npcDef.quests || []) {
-      const qd = QUESTS.find(q => q.id === qid);
+    // Связка: NPC (включая врата инстансов) выдаёт ВСЕ свои квесты из базы 352+17,
+    // ограничив выдачу по уровню игрока ±3. Активные/сданные — всегда показываем.
+    const lvl = this.char.level;
+    const all = questsForNpcG(npcDef.id);
+    const qids = [...new Set([...(npcDef.quests || []), ...all.map(q => q.id)])];
+    for (const qid of qids) {
+      const qd = questByIdG(qid);
+      if (!qd) continue;
       const active = this.char.quests.find(q => q.id === qid);
+      const done = (this.char.doneQuests || []).includes(qid);
       if (!active) {
-        actions.push({ label: `Взять задание: «${qd.name}»`, primary: true, onClick: () => { this.acceptQuest(qid); this.ui.closeDialog(); } });
+        if (done) { actions.push({ label: `Задание «${qd.name}» уже выполнено`, onClick: () => this.ui.closeDialog() }); continue; }
+        if (Math.abs((qd.level || 1) - lvl) > 3) continue;   // уровень игрока ±3
+        actions.push({ label: `Взять задание: «${qd.name}» (ур.${qd.level})`, primary: true, onClick: () => { this.acceptQuest(qid); this.ui.closeDialog(); } });
       } else if (active.step >= qd.steps.length - 1 && this.questStepComplete(active)) {
         actions.push({ label: `Сдать задание: «${qd.name}»`, primary: true, onClick: () => { this.completeQuest(qid); this.ui.closeDialog(); } });
       } else {
@@ -423,22 +432,33 @@ export class Game {
 
   acceptQuest(qid) {
     if (this.char.quests.some(q => q.id === qid)) return;
-    const qd = QUESTS.find(q => q.id === qid);
+    const qd = questByIdG(qid);
+    if (!qd) return;
     this.char.quests.push({ id: qid, step: 0, progress: 0 });
     this.ui.toast(`Принято задание: ${qd.name}`, qd.color);
     this.ui.renderQuests();
   }
-  questDef(qid) { return QUESTS.find(q => q.id === qid); }
+  questDef(qid) { return questByIdG(qid); }
   questStepComplete(q) {
     const st = this.questDef(q.id).steps[q.step];
     return q.progress >= (st.count || 1);
   }
   onQuestEvent(type, payload) {
+    // 'kill_instance' — убийства внутри текущего забега (instances.js шлёт тип 'instance')
+    const inRun = type === 'instance' ? (this.inst?.run?.def?.id || null) : null;
     for (const q of this.char.quests) {
       const def = this.questDef(q.id);
       const st = def.steps[q.step];
       if (!st) continue;
-      if (st.type === type && ((payload.mob && st.mob === payload.mob) || (payload.item && st.item === payload.item) || (payload.npc && st.npc === payload.npc))) {
+      let match = false;
+      if (type === 'instance' && isInstanceQuestStep(st)) {
+        // засчитываем только если забег совпадает с инстансом квеста (или инстанс не указан)
+        const wantInst = st.inst || q.inst || null;
+        match = (!wantInst || wantInst === inRun) && (!payload.mob || st.mob === payload.mob);
+      } else if (st.type === type) {
+        match = (payload.mob && st.mob === payload.mob) || (payload.item && st.item === payload.item) || (payload.npc && st.npc === payload.npc);
+      }
+      if (match) {
         q.progress += payload.count || 1;
         if (q.progress >= (st.count || 1)) {
           q.step++; q.progress = 0;

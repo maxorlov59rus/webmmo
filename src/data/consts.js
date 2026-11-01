@@ -889,12 +889,38 @@ export const ALL_QUESTS = QUESTS.concat(QUESTS_GEN);
 export function questByIdG(qid) { return ALL_QUESTS.find(q => q.id === qid) || null; }
 export function questsForNpcG(npcId) { return ALL_QUESTS.filter(q => q.giver === npcId); }
 
-// Инстансовые «врата» — невидимые квестодатели у порталов (см. instances.js)
+// Инстансовые «врата» — квестодатели у порталов (см. instances.js).
+// Фикс: шаг инстансового квеста помечен type==="kill_instance" (или типом kill с
+// флагом instance), поэтому детектим по типу шага, а не по тексту/hint.
+export const isInstanceQuestStep = (st) => !!st && (st.type === 'kill_instance' || (st.type === 'kill' && st.instance === true));
+export const isInstanceQuest = (q) => !!(q && q.steps && q.steps.some(isInstanceQuestStep));
+// Фикс генерации INSTATES-квестов: квест привязан к ИНСТАНСУ (q.inst или inst_<NN> в шагах).
+// Врата («Хранители порогов») ставим в базовую локацию каждого из 34 инстансов, чтобы все
+// 352+17 квестов были доступны в мире. Детект инстансового квеста — по любому шагу
+// type==='kill_instance' (не обязательно первому).
+import { INSTANCES as INST_DEFS } from './instances.js';
 export const INST_GATE_NPCS = {};
-for (const q of QUESTS_GEN) {
-  if (/инстанс/i.test(q.steps[0] ? q.steps[0].text : '') || /инстанс/i.test(q.hint)) {
-    const gid = 'gate_' + q.loc;
-    if (!INST_GATE_NPCS[gid]) INST_GATE_NPCS[gid] = { id: gid, name: 'Врата Инстансов', role: 'Хранитель порогов Долгой Ночи', faction: 'umbral', color: '#c07ff0', loc: q.loc, offset: [4, 4], quests: [] };
-    INST_GATE_NPCS[gid].quests.push(q.id);
+const baseLocOfInst = (instId) => { const d = INST_DEFS.find(i => i.id === instId); return d ? d.baseLoc : null; };
+for (const q of ALL_QUESTS) {
+  if (!isInstanceQuest(q)) continue;
+  let loc = q.inst ? baseLocOfInst(q.inst) : null;
+  if (!loc) {                                    // fallback: первый kill_instance шаг → inst hint/id
+    const st = q.steps.find(isInstanceQuestStep);
+    const m = st && (st.inst || (typeof st.hint === 'string' ? (st.hint.match(/inst_\d{2}/) || [])[0] : null));
+    if (m) loc = baseLocOfInst(m);
   }
+  if (!loc) loc = q.loc;                         // последний fallback — локация квеста
+  if (!LOCATIONS[loc]) continue;                 // NPC ставим только в существующую локацию
+  const gid = 'gate_' + loc;
+  if (!INST_GATE_NPCS[gid]) INST_GATE_NPCS[gid] = { id: gid, name: 'Врата Инстансов', role: 'Хранитель порогов Долгой Ночи', faction: 'umbral', color: '#c07ff0', loc, offset: [4, 4], quests: [], gate: true };
+  if (!INST_GATE_NPCS[gid].quests.includes(q.id)) INST_GATE_NPCS[gid].quests.push(q.id);
 }
+// Регистрация врат как обычных NPC: спавн, диалоги и выдача квестов идут через NPCS
+Object.assign(NPCS, INST_GATE_NPCS);
+for (const g of Object.values(INST_GATE_NPCS)) DIALOGS[g.id] = [
+  'Порог открыт. За ним — Долгая Ночь в миниатюре: волны, босс, добыча.',
+  'Соло возьмёшь? Возьмёшь. Призраки-наёмники прикроют фланги. Но группой — быстрее.',
+  'Ключ куётся у горна. Без ключа врата молчат, как мёртвые.',
+  'Выбирай сложность по зубам: обычная, героическая, мифическая. Смерть в забеге — не конец, а урок.',
+  `Ко мне приходят за забегами: ${g.quests.length} заданий порогов уже ждут своего героя.`,
+];

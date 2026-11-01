@@ -124,6 +124,8 @@ export class InstanceManager {
 
   onMobKilled(m) {
     if (!this.run || m.inst !== this.run.lockId) return;
+    // прогресс инстансовых квестов: каждое убийство внутри забега
+    this.game.onQuestEvent('instance', { mob: m.id, count: 1 });
     this.run.mobsLeft = Math.max(0, this.run.mobsLeft - 1);
     if (this.game.net && this.game.net.mode === 'live') this.game.net.sendInstKill(this.run.serverRunId, m.isBoss);
     const aliveInWave = this.groupMobs.some(x => x.uid === m.uid ? false : !x.dead);
