@@ -51,36 +51,75 @@ async function localLogin(email, password) {
 }
 
 // ---- Реальный HTTP-сервер (если задан ?api=) -------------------------------
-async function api(path, body) {
+const TOKEN_KEY = 'nvr.token';
+async function api(path, body, method = 'POST') {
+  const headers = { 'Content-Type': 'application/json' };
+  const tok = localStorage.getItem(TOKEN_KEY);
+  if (tok) headers['x-token'] = tok;
   const r = await fetch(API_URL + path, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    method, headers,
+    body: method === 'GET' ? undefined : JSON.stringify(body),
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || ('Ошибка сервера ' + r.status));
   return data;
 }
 
+// Синхронизация персонажа с серверной БД (через игровой save())
+export const ServerSync = {
+  enabled: !!API_URL,
+  async upload(worldId, saveJson) {
+    if (!API_URL) return false;
+    try { await api('/api/character/' + encodeURIComponent(worldId), JSON.parse(saveJson)); return true; }
+    catch (e) { console.warn('sync upload:', e.message); return false; }
+  },
+  async download(worldId) {
+    if (!API_URL) return null;
+    try { const d = await api('/api/character/' + encodeURIComponent(worldId), null, 'GET'); return d ? JSON.stringify(d) : null; }
+    catch (e) { console.warn('sync download:', e.message); return null; }
+  },
+};
+
 export const Auth = {
   online: !!API_URL,
 
   async register(email, password, nick) {
     this._validate(email, password, nick);
-    const acc = API_URL
-      ? await api('/api/register', { email, password, nick })
-      : await localRegister(email, password, nick);
+    let acc;
+    if (API_URL) {
+      acc = await api('/api/register', { email, password, nick });
+      // получаем токен для последующего сохранения персонажа на сервер
+      try { const t = await api('/api/token', { email, password }); localStorage.setItem(TOKEN_KEY, t.token); } catch (_) {}
+      // локальная зеркальная копия аккаунта — тот же формат, что и оффлайн
+      if (!accountExists(acc.email)) {
+        const mirror = defaultAccount(acc.email, acc.nick);
+        mirror.salt = 'srv'; mirror.hash = 'srv';   // пароль живёт только на сервере
+        saveAccount(mirror);
+      }
+    } else {
+      acc = await localRegister(email, password, nick);
+    }
     rememberSession(acc.email);
-    return acc;
+    return loadAccount(acc.email) || acc;
   },
 
   async login(email, password) {
     if (!/.+@.+\..+/.test(email)) throw new Error('Введите корректный e-mail.');
     if (!password) throw new Error('Введите пароль.');
-    const acc = API_URL
-      ? await api('/api/login', { email, password })
-      : await localLogin(email, password);
+    let acc;
+    if (API_URL) {
+      acc = await api('/api/login', { email, password });
+      try { const t = await api('/api/token', { email, password }); localStorage.setItem(TOKEN_KEY, t.token); } catch (_) {}
+      if (!accountExists(acc.email)) {
+        const mirror = defaultAccount(acc.email, acc.nick);
+        mirror.salt = 'srv'; mirror.hash = 'srv';
+        saveAccount(mirror);
+      }
+    } else {
+      acc = await localLogin(email, password);
+    }
     rememberSession(acc.email);
-    return acc;
+    return loadAccount(acc.email) || acc;
   },
 
   logout() { clearSession(); },
