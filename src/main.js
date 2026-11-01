@@ -247,7 +247,7 @@ function renderRoles() {
   if (allowed.length === 1 && !allowed.includes(chosenRole)) chosenRole = allowed[0];
   // подсветить обязательную роль
   for (const c of document.querySelectorAll('.class-card')) {
-    if (!locked && c.dataset.rid === chosenRole) c.classList.add('selected');
+    if (c.dataset.rid === chosenRole && allowed.includes(chosenRole)) c.classList.add('selected');
   }
   validateStart();
 }
