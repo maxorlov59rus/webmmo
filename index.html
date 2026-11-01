@@ -11,177 +11,216 @@
 <!-- WebGL-полотно -->
 <canvas id="gl"></canvas>
 
-<!-- ЭКРАН СОЗДАНИЯ -->
-<div id="screen-create" class="screen">
-  <div class="menu-frame">
+<!-- ЭКРАН: ВХОД / РЕГИСТРАЦИЯ -->
+<div id="screen-auth" class="screen">
+  <div class="menu-frame narrow">
     <div class="game-logo">
       <div class="logo-moon"></div>
       <h1 id="title-main">НОЧЬ</h1>
       <h2 id="title-sub">ВОЕННОГО РЕМЕСЛА</h2>
-      <div class="logo-tag">браузерная 3D-MMORPG · фэнтези · Застава под луной</div>
+      <div class="logo-tag">браузерная 3D-MMORPG · Эфирия · Долгая Ночь, 300-й год</div>
     </div>
     <div id="menu-online">Игроков в мире сейчас: 137</div>
-    <div class="create-box">
-      <label class="name-label">Имя героя
-        <input id="hero-name" maxlength="20" placeholder="например, Вьюг" autocomplete="off">
+
+    <div class="auth-tabs">
+      <button id="tab-login" class="auth-tab active" type="button">Вход</button>
+      <button id="tab-register" class="auth-tab" type="button">Регистрация</button>
+    </div>
+
+    <!-- Вход -->
+    <form id="form-login" class="auth-form">
+      <label class="name-label">E-mail
+        <input id="login-email" type="email" maxlength="64" placeholder="strannik@efiria.ru" autocomplete="username">
       </label>
-      <div id="class-cards" class="class-cards"></div>
+      <label class="name-label">Пароль
+        <input id="login-pass" type="password" maxlength="64" placeholder="••••••" autocomplete="current-password">
+      </label>
+      <div id="auth-msg-login" class="auth-msg"></div>
       <div class="start-row">
-        <button id="btn-start" disabled>⚔ Встать на ночную смену</button>
-        <div id="continue-row" class="hidden">
-          <button id="btn-continue" class="secondary">Продолжить путь сохранённого героя</button>
+        <button type="submit" id="btn-login" class="primary">⚟ Войти во тьму</button>
+      </div>
+    </form>
+
+    <!-- Регистрация -->
+    <form id="form-register" class="auth-form hidden">
+      <label class="name-label">E-mail
+        <input id="reg-email" type="email" maxlength="64" placeholder="ваша почта">
+      </label>
+      <label class="name-label">Ник (отображается игрокам)
+        <input id="reg-nick" maxlength="16" placeholder="например, Вьюг">
+      </label>
+      <label class="name-label">Пароль (мин. 6 символов)
+        <input id="reg-pass" type="password" maxlength="64" placeholder="••••••">
+      </label>
+      <label class="name-label">Повторите пароль
+        <input id="reg-pass2" type="password" maxlength="64" placeholder="••••••">
+      </label>
+      <div id="auth-msg-register" class="auth-msg"></div>
+      <div class="start-row">
+        <button type="submit" id="btn-register" class="primary">✦ Зажечь новое имя</button>
+      </div>
+    </form>
+
+    <div class="lore-strip">
+      Великое Затмение погасило солнце триста лет назад. Из теней вышли Химеры —
+      они идут на свет и тепло. Последнее, что осталось людям: огонь горна,
+      лунный камень и ремесло. <b>Ночь военного ремесла началась.</b>
+    </div>
+  </div>
+</div>
+
+<!-- ЭКРАН: ВЫБОР МИРА -->
+<div id="screen-world" class="screen hidden">
+  <div class="menu-frame">
+    <h3 class="screen-title">Выбор мира</h3>
+    <div class="acc-line">Аккаунт: <span id="world-acc"></span> · <a href="#" id="btn-logout">выйти</a></div>
+    <div id="world-list" class="world-list"></div>
+    <div id="world-msg" class="auth-msg"></div>
+    <div class="start-row">
+      <button id="btn-world-next" class="primary" disabled>Продолжить →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ЭКРАН: ФРАКЦИЯ -->
+<div id="screen-faction" class="screen hidden">
+  <div class="menu-frame">
+    <h3 class="screen-title">На чём держится ваша ночь?</h3>
+    <div id="faction-cards" class="faction-cards"></div>
+    <div class="start-row">
+      <button id="btn-faction-next" class="primary" disabled>Выбрать архетип →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ЭКРАН: АРХЕТИП + РОЛЬ + ШАБЛОН -->
+<div id="screen-create" class="screen hidden">
+  <div class="menu-frame wide">
+    <h3 class="screen-title">Создание персонажа <span id="create-world-tag" class="world-tag"></span></h3>
+    <div class="create-cols">
+      <div class="col-left">
+        <div class="sub-title">Архетип фракции</div>
+        <div id="arch-list" class="arch-list"></div>
+      </div>
+      <div class="col-right">
+        <div class="sub-title">Боевая роль (скелет статов)</div>
+        <div id="role-cards" class="class-cards"></div>
+        <div class="sub-title">Шаблон внешности</div>
+        <div class="template-row">
+          <select id="tpl-select" class="tpl-select"></select>
+          <button id="btn-tpl-random" class="ghost" type="button">↻ Случайно</button>
+        </div>
+        <label class="name-label">Имя героя
+          <input id="hero-name" maxlength="20" placeholder="например, Вьюг" autocomplete="off">
+        </label>
+        <div id="arch-info" class="arch-info"></div>
+        <div class="start-row">
+          <button id="btn-start" class="primary" disabled>⚔ Встать на ночную смену</button>
         </div>
       </div>
-      <p class="hint">Совет: WASD — движение, ЛКМ по врагу — атака, [1–5] — способности, [F] — разговор и горн, [H] — справка.</p>
     </div>
   </div>
 </div>
 
-<!-- ЭКРАН ЗАГРУЗКИ -->
-<div id="screen-loading" class="screen hidden">
+<!-- ЭКРАН: ЗАГРУЗКА -->
+<div id="screen-loading" class="screen hidden dark">
   <div class="loading-box">
-    <div class="forge-spinner"></div>
+    <div class="loading-anvil"></div>
     <div id="loading-text">Разжигаем горн…</div>
-    <div class="loading-tip">«Пока молот горяч — ночь не кончена»</div>
+    <div class="loading-bar"><div id="loading-fill"></div></div>
   </div>
 </div>
 
-<!-- ИГРА -->
+<!-- ИГРОВОЙ HUD -->
 <div id="screen-game" class="hidden">
-
-  <!-- верхний левый: портрет/полосы -->
-  <div id="hud-top-left">
-    <div id="portrait">Н</div>
-    <div class="bars">
-      <div id="char-name-hud">—</div>
-      <div class="bar hp"><div id="hp-fill"></div><span id="hp-text"></span></div>
-      <div class="bar mp"><div id="mp-fill"></div><span id="mp-text"></span></div>
-      <div class="bar xp"><div id="xp-fill"></div></div>
-    </div>
-    <div id="level-badge">1</div>
-    <div id="buff-shield" class="buff hidden" title="Бастион: -50% урона">🛡</div>
-  </div>
-
-  <!-- цель -->
-  <div id="target-frame" class="hidden">
-    <div id="target-name">Цель</div>
-    <div class="bar target-hp"><div id="target-hp-fill"></div></div>
-  </div>
-
-  <!-- статус сервера / золото -->
-  <div id="hud-top-right">
-    <div id="server-dot">● <span id="server-status">симуляция</span></div>
-    <div id="gold-line">💰 <span id="gold-count">0</span></div>
-  </div>
-
-  <!-- кнопки панелей -->
-  <div id="menu-bar">
-    <button data-panel="inventory" title="Инвентарь (I)">🎒</button>
-    <button data-panel="character" title="Персонаж (C)">🧝</button>
-    <button data-panel="spells" title="Способности (K)">✨</button>
-    <button data-panel="quests" title="Журнал (J)">📜</button>
-    <button data-panel="help" title="Справка (H)">❓</button>
-  </div>
-
-  <!-- панель квестов (трекер) -->
-  <div id="quest-tracker">
-    <div id="quest-tracker-head">Задания</div>
-    <div id="quest-tracker-body"><div id="quest-log"></div></div>
-  </div>
-
-  <!-- подсказки взаимодействия -->
-  <div id="interact-hint" class="hint-float hidden"></div>
-  <div id="forge-hint" class="hint-float hidden" style="top:64%">Рядом горн Дормира — [F] открыть кузницу</div>
-
-  <!-- экшен-бар -->
-  <div id="action-bar"></div>
-
-  <!-- чат -->
-  <div id="chat-box">
-    <div id="chat-log"></div>
-    <input id="chat-input" placeholder="Написать в общий канал… (Enter)" autocomplete="off">
-  </div>
-
-  <!-- тосты / лут -->
-  <div id="toasts"></div>
-  <div id="loot-popup"></div>
-
-  <!-- ПАНЕЛИ -->
-  <div id="panel-inventory" class="panel">
-    <div class="panel-head"><b>Инвентарь</b><button class="panel-close">✕</button></div>
-    <div id="equip-slots" class="equip-slots"></div>
-    <div id="inv-grid" class="inv-grid"></div>
-    <div class="panel-foot">Золото: <span id="inv-gold"></span> · клик по предмету — экипировать/использовать</div>
-  </div>
-
-  <div id="panel-character" class="panel">
-    <div class="panel-head"><b>Герой</b><button class="panel-close">✕</button></div>
-    <div id="char-detail"></div>
-    <div id="stat-list"></div>
-    <div id="derived-stats" class="derived"></div>
-  </div>
-
-  <div id="panel-spells" class="panel">
-    <div class="panel-head"><b>Книга умений</b><button class="panel-close">✕</button></div>
-    <div id="spell-list"></div>
-  </div>
-
-  <div id="panel-quests" class="panel">
-    <div class="panel-head"><b>Журнал заданий</b><button class="panel-close">✕</button></div>
-    <div id="panel-quests-body"></div>
-  </div>
-
-  <div id="panel-help" class="panel">
-    <div class="panel-head"><b>Справка заставы</b><button class="panel-close">✕</button></div>
-    <div class="help-body">
-      <p><b>Управление:</b></p>
-      <ul>
-        <li>WASD / стрелки — идти (относительно камеры)</li>
-        <li>ЛКМ по врагу — выбрать и рубить; зажать — автоатака</li>
-        <li>ЛКМ по земле — идти к точке</li>
-        <li>ПКМ + тянуть — вращать камеру; колесо — приближение</li>
-        <li>1–5, Q — способности; Tab — следующая цель</li>
-        <li>F — говорить с жителем / открыть горн</li>
-        <li>I — инвентарь, C — герой, K — умения, J — задания, Enter — чат</li>
-        <li>Эмоции в чате: /поклон, /крик, /смех, /драться, /танец</li>
-      </ul>
-      <p><b>Ночное кузнечное дело:</b> мобы роняют железную руду и лунный камень. У горна Дормира ([F]) выкуй клинок Malamur или Латы Заставы.</p>
-      <p><b>Босс:</b> Надзиратель Ночи бродит у западного кургана. При нём — свиток Кузнечного Дела и легендарное оружие.</p>
-      <p><b>MMO-слой:</b> другие «игроки» и общий чат работают через WebSocket; без ?server=ws://… запускается локальная симуляция мира.</p>
-    </div>
-  </div>
-
-  <!-- диалог NPC -->
-  <div id="dialog" class="hidden">
-    <div class="dialog-inner">
-      <div class="dialog-head">
-        <div id="dialog-npc-name"></div>
-        <div id="dialog-role"></div>
+  <header id="top-hud">
+    <div class="portrait-wrap">
+      <div id="portrait" class="portrait">?</div>
+      <div class="bars">
+        <div class="bar hp"><div id="bar-hp"></div><span id="txt-hp"></span></div>
+        <div class="bar mp"><div id="bar-mp"></div><span id="txt-mp"></span></div>
+        <div class="bar xp"><div id="bar-xp"></div><span id="txt-xp"></span></div>
       </div>
-      <div id="dialog-text"></div>
-      <div id="dialog-options"></div>
+    </div>
+    <div id="charline"><span id="hud-name"></span> <span id="hud-faction" class="hud-faction"></span> ур. <span id="hud-level"></span></div>
+    <div class="top-right">
+      <div id="server-status" class="server-status">соединение…</div>
+      <div id="zone-time">Ночь</div>
+      <button id="btn-menu-open" class="ghost small">≡ Меню</button>
+    </div>
+  </header>
+
+  <aside id="minimap"><canvas id="minimap-canvas" width="150" height="150"></canvas><div class="mm-label">Застава</div></aside>
+
+  <div id="target-frame" class="hidden">
+    <div id="target-name"></div>
+    <div class="bar target"><div id="bar-target"></div></div>
+  </div>
+
+  <div id="quest-tracker"><div class="qt-title">Задания</div><div id="qt-list"></div></div>
+
+  <div id="chatbox">
+    <div id="chat-log"></div>
+    <form id="chat-form"><input id="chat-input" maxlength="120" placeholder="Чат: Enter — открыть, /поклон — эмоции"></form>
+  </div>
+
+  <div id="actionbar">
+    <div id="skill-slots"></div>
+    <div class="hintline">ЛКМ — атака/цель · ПКМ(удерж.) — движение · WASD · Tab — цель · F — диалог · 1–5 — умения · I/C/K/J · Esc</div>
+  </div>
+
+  <div id="toasts"></div>
+
+  <!-- Панели -->
+  <section id="panel-inventory" class="panel hidden" data-panel>
+    <header><span>Инвентарь и экипировка</span><button class="panel-close" data-close>✕</button></header>
+    <div class="panel-body" id="inv-body"></div>
+  </section>
+  <section id="panel-character" class="panel hidden" data-panel>
+    <header><span>Лист персонажа</span><button class="panel-close" data-close>✕</button></header>
+    <div class="panel-body" id="char-body"></div>
+  </section>
+  <section id="panel-craft" class="panel hidden" data-panel>
+    <header><span>Ночное кузнечное дело</span><button class="panel-close" data-close>✕</button></header>
+    <div class="panel-body" id="craft-body"></div>
+  </section>
+  <section id="panel-quests" class="panel hidden" data-panel>
+    <header><span>Журнал заданий</span><button class="panel-close" data-close>✕</button></header>
+    <div class="panel-body" id="quests-body"></div>
+  </section>
+
+  <div id="dialog-frame" class="hidden">
+    <div class="dialog-portrait" id="dlg-portrait"></div>
+    <div class="dialog-body">
+      <div class="dialog-name" id="dlg-name"></div>
+      <div class="dialog-text" id="dlg-text"></div>
+      <div class="dialog-options" id="dlg-options"></div>
     </div>
   </div>
 
-  <!-- КУЗНИЦА -->
-  <div id="forge" class="hidden">
-    <div class="forge-inner">
-      <div class="panel-head"><b>🔥 Горн Дормира — Ночное Кузнечное Дело</b><button class="panel-close" onclick="document.getElementById('forge').classList.add('hidden')">✕</button></div>
-      <div id="forge-mats" class="forge-mats"></div>
-      <div id="recipe-list"></div>
-      <div class="forge-note">Молот бьёт только ночью. Не подведи заставу.</div>
-    </div>
+  <div id="loot-popup" class="hidden">
+    <div class="loot-title">Трофеи</div>
+    <div id="loot-items"></div>
+    <button id="loot-take">Забрать всё</button>
   </div>
 
-  <!-- СМЕРТЬ -->
   <div id="death-overlay" class="hidden">
     <div class="death-inner">
-      <h2>Ты пал этой ночью</h2>
-      <p>Но горн ещё тёплый. Заставе нужен молот.</p>
-      <button id="btn-respawn">Восстать у костра</button>
+      <h2>Ночь забрала вас</h2>
+      <p>Горн ещё тёплый. Воскреснуть у костра заставы?</p>
+      <button id="btn-respawn" class="primary">✥ Воскреснуть</button>
     </div>
   </div>
 
+  <div id="game-menu" class="hidden">
+    <div class="gm-box">
+      <h3>Пауза</h3>
+      <div class="gm-info" id="gm-info"></div>
+      <button id="btn-gm-save" class="ghost">Сохранить</button>
+      <button id="btn-gm-quit" class="ghost">Выйти в меню</button>
+      <button id="btn-gm-close" class="primary">Продолжить бой</button>
+    </div>
+  </div>
 </div>
 
 <script type="module" src="src/main.js"></script>
