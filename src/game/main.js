@@ -7,8 +7,8 @@ import { buildWorld, heightAt, resolveCollision } from './world.js';
 import { buildPlayerMesh, buildMobMesh, buildNpcMesh, AnimController, makeLabel, updateLabelTexture } from './models.js';
 import { CombatFX, rollPlayerDamage, rollMobDamage } from './combat.js';
 import { NetClient } from './net.js';
-import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, countItem, equip, unequip, useConsumable, knownAbilities, serialize, deserialize } from './character.js';
-import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLD_SEED_DEFAULT } from '../data/consts.js';
+import { createCharacter, recalc, gainXp, allocateStat, addItem, removeItem, countItem, equip, unequip, useConsumable, knownAbilities, serialize, deserialize, loadAccount, saveAccount } from './character.js';
+import { ITEMS, MOBS, NPCS, ABILITIES, QUESTS, RECIPES, CLASSES, DIALOGS, WORLDS, WORLD_SEED_DEFAULT } from '../data/consts.js';
 import { UI } from '../ui/hud.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -51,21 +51,29 @@ export class Game {
   }
 
   // --- Старт мира ------------------------------------------------------------
-  async start(charName, classId) {
-    return this._boot(charName, classId, null);
+  // opts: { accountEmail, worldId, faction, archetype }
+  async start(charName, classId, opts = {}) {
+    return this._boot(charName, classId, null, opts);
   }
-  async startRestored(savedChar) {
-    return this._boot(savedChar.name, savedChar.classId, savedChar);
+  async startRestored(savedChar, opts = {}) {
+    return this._boot(savedChar.name, savedChar.classId, savedChar, opts);
   }
-  async _boot(charName, classId, restored) {
+  async _boot(charName, classId, restored, opts = {}) {
+    this.accountEmail = opts.accountEmail || null;
+    const worldDef = WORLDS.find(w => w.id === (opts.worldId || (restored && restored.world)));
+    this.worldId = worldDef ? worldDef.id : WORLDS[0].id;
+    this.seed = worldDef ? worldDef.seed : WORLD_SEED_DEFAULT;
     this.initRender();
     this.world = buildWorld(this.scene, this.seed);
     if (restored) {
       this.char = restored;
       recalc(this.char);
     } else {
-      this.char = createCharacter(charName, classId, this.seed);
+      this.char = createCharacter(charName, classId, this.seed, {
+        faction: opts.faction, archetype: opts.archetype, world: this.worldId,
+      });
     }
+    this.char.world = this.worldId;
     this.ui = new UI(this);
     window.__unequipSlot = (slot) => { unequip(this.char, slot); this.ui.renderInventory(); };
 
@@ -889,7 +897,17 @@ export class Game {
     this.camera.lookAt(c.x, h + 1.3, c.z);
   }
 
-  save() { try { localStorage.setItem('nvr_save', serialize(this.char)); } catch (_) {} }
+  save() {
+    const json = serialize(this.char);
+    try { localStorage.setItem('nvr_save', json); } catch (_) {}
+    // персист в аккаунт-прототипе: персонаж привязан к worldId учётки
+    if (this.accountEmail) {
+      try {
+        const acc = loadAccount(this.accountEmail);
+        if (acc) { acc.characters[this.worldId] = json; acc.lastWorld = this.worldId; saveAccount(acc); }
+      } catch (_) {}
+    }
+  }
   saveSoon() { clearTimeout(this._saveT); this._saveT = setTimeout(() => this.save(), 1500); }
   static loadSaved() { return deserialize(localStorage.getItem('nvr_save')); }
 }

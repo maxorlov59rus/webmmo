@@ -4,14 +4,42 @@
 // ============================================================
 
 import * as THREE from '../../vendor/three.module.js';
-import { CLASSES, ITEMS, ABILITIES, STAT_KEYS } from '../data/consts.js';
+import { CLASSES, ITEMS, ABILITIES, STAT_KEYS, ARCHETYPES, ARCHETYPE_KEYS, FACTIONS, WORLDS } from '../data/consts.js';
 
 export function xpForLevel(level) { return Math.round(80 * Math.pow(level, 1.55)); }
 
-export function createCharacter(name, classId, seed = Date.now()) {
+// --- Аккаунт (локальный прототип учётной записи; на сервере — тот же формат) --
+export function defaultAccount(email, nick) {
+  const fallback = (email || 'странник').split('@')[0].slice(0, 16);
+  return {
+    email: email || '',
+    nick: (nick || fallback).slice(0, 16),
+    createdAt: Date.now(),
+    characters: {},            // worldId -> сохранённый персонаж (json)
+    lastWorld: WORLDS[0].id,
+    rep: { forge: 10, umbral: 10, dusk: 10, order: 10 },   // репутация фракций
+  };
+}
+
+// Архетип по умолчанию для роли (если игрок не выбирал — «рекрут» своей гильдии)
+const DEFAULT_ARCH = { warden: 'steelbreaker', mage: 'chemist', scout: 'phosphor' };
+export function resolveArchetype(role, factionId, archetypeId) {
+  if (archetypeId && ARCHETYPES[archetypeId]) return archetypeId;
+  if (factionId) {
+    const inFac = ARCHETYPE_KEYS.filter(k => ARCHETYPES[k].faction === factionId && ARCHETYPES[k].role === role);
+    if (inFac.length) return inFac[0];
+  }
+  return DEFAULT_ARCH[role] || null;
+}
+
+export function createCharacter(name, classId, seed = Date.now(), opts = {}) {
   const cls = CLASSES[classId];
+  const arch = resolveArchetype(classId, opts.faction, opts.archetype);
+  const faction = arch ? ARCHETYPES[arch].faction : (opts.faction && FACTIONS[opts.faction] ? opts.faction : null);
+  const world = opts.world && WORLDS.find(w => w.id === opts.world) ? opts.world : WORLDS[0].id;
   const c = {
-    name, classId, level: 1, xp: 0, statPoints: 0, gold: 15,
+    name, classId, archetype: arch, faction, world,
+    level: 1, xp: 0, statPoints: 0, gold: 15,
     base: { ...cls.base },
     allocated: { might: 0, ward: 0, arcane: 0, agility: 0, wit: 0 },
     hp: cls.base.hp, mp: cls.base.mp,
@@ -155,6 +183,18 @@ export function knownAbilities(c) {
     if (ab.class !== c.classId && ab.class !== 'all') continue;
     if (ab.level <= c.level) list.push(ab);
   }
+  // способности архетипа доступны независимо от «классовой» привязки,
+  // но открываются по уровню: роль-скелет даёт базу, архетип — спец-умения
+  const arch = c.archetype && ARCHETYPES[c.archetype];
+  if (arch) {
+    const have = new Set(list.map(a => a.id));
+    for (const aid of arch.arch) {
+      const ab = ABILITIES[aid];
+      if (!ab || have.has(aid)) continue;
+      const lvl = Math.max(1, ab.level - 2);   // архетипные умения чуть быстрее открываются
+      if (lvl <= c.level) { list.push({ ...ab, level: lvl }); have.add(aid); }
+    }
+  }
   return list.sort((a, b) => a.level - b.level);
 }
 
@@ -183,7 +223,8 @@ export function allocateStat(c, key) {
 // --- Сохранение ---------------------------------------------------------------
 export function serialize(c) {
   return JSON.stringify({
-    name: c.name, classId: c.classId, level: c.level, xp: c.xp, statPoints: c.statPoints, gold: c.gold,
+    name: c.name, classId: c.classId, archetype: c.archetype, faction: c.faction, world: c.world,
+    level: c.level, xp: c.xp, statPoints: c.statPoints, gold: c.gold,
     base: c.base, allocated: c.allocated, hp: c.hp, mp: c.mp,
     equipment: c.equipment, inventory: c.inventory, quests: c.quests, kills: c.kills,
   });
@@ -191,7 +232,9 @@ export function serialize(c) {
 export function deserialize(json) {
   try {
     const d = JSON.parse(json);
-    const c = createCharacter(d.name, d.classId);
+    const c = createCharacter(d.name, d.classId, Date.now(), {
+      archetype: d.archetype, faction: d.faction, world: d.world,
+    });
     Object.assign(c, {
       level: d.level, xp: d.xp, statPoints: d.statPoints, gold: d.gold,
       allocated: d.allocated, equipment: d.equipment, inventory: d.inventory,
@@ -203,3 +246,30 @@ export function deserialize(json) {
     return c;
   } catch (e) { console.warn('save corrupt', e); return null; }
 }
+
+// --- Аккаунты в localStorage (клиентская часть auth-потока) -------------------
+const ACC_INDEX = 'nvr.accounts';
+const accKey = (email) => 'nvr.acc.' + email.toLowerCase();
+
+export function listAccounts() {
+  try { return JSON.parse(localStorage.getItem(ACC_INDEX)) || []; } catch (_) { return []; }
+}
+export function loadAccount(email) {
+  try {
+    const a = JSON.parse(localStorage.getItem(accKey(email)));
+    if (!a) return null;
+    a.rep = a.rep || { forge: 10, umbral: 10, dusk: 10, order: 10 };
+    a.characters = a.characters || {};
+    return a;
+  } catch (_) { return null; }
+}
+export function saveAccount(acc) {
+  localStorage.setItem(accKey(acc.email), JSON.stringify(acc));
+  const idx = new Set(listAccounts());
+  idx.add(acc.email);
+  localStorage.setItem(ACC_INDEX, JSON.stringify([...idx]));
+}
+export function accountExists(email) { return !!localStorage.getItem(accKey(email)); }
+export function rememberSession(email) { localStorage.setItem('nvr.session', email); }
+export function getSession() { return localStorage.getItem('nvr.session'); }
+export function clearSession() { localStorage.removeItem('nvr.session'); }
