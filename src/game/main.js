@@ -148,7 +148,24 @@ export class Game {
     this.net.on.chat = (c) => this.ui.addChat(c.text, c.color, c.author ? `[${c.author}]` : '');
     this.net.on.emote = (e) => this.onRemoteEmote(e);
     this.net.on.disconnect = () => this.ui.addChat('Связь с сервером потеряна. Продолжай в автономном режиме.', '#ff8a8a');
-    const mode = await this.net.connect(charName);
+    // ---- ГМ-контур ----
+    const gmEmail = (typeof window !== 'undefined' && window.nvrAccount && window.nvrAccount.email) || '';
+    this.gmLevel = 0;
+    this.net.on.welcome = (w) => {
+      if (w && w.gm) {
+        this.gmLevel = w.gm;
+        this.ui.addChat(`★ Режим администратора: ${w.gmTitle || 'ГМ'} (ур.${w.gm}). /gm help — список команд.`, '#ff8a8a');
+        try { const tag = document.querySelector('.char-name-tag'); if (tag) tag.style.color = '#ff5f5f'; } catch (_) {}
+      }
+      if (w && w.motd) this.ui.addChat(`⚜ ${w.motd}`, '#d9b45b');
+    };
+    this.net.on.notice = (n) => this.ui.addChat(n.text, '#ffd97a', '[ГМ]');
+    this.net.on.announce = (a) => { this.ui.addChat(`⚡ ОБЪЯВЛЕНИЕ: ${a.text}`, '#ff8a8a'); this.ui.toast && this.ui.toast(a.text, 'info'); };
+    this.net.on.gmTp = (t) => { if (this.char) { this.char.pos.x = t.x; this.char.pos.z = t.z; this.ui.addChat('Тебя переместил хранитель ночи (ГМ-телепорт).', '#ffd97a'); } };
+    this.net.on.gmXp = (x) => { if (this.char && x.amount > 0) { gainXp(this.char, x.amount, this); this.ui.addChat(`Получено ${x.amount} опыта от ГМ.`, '#8fd18f'); } };
+    this.net.on.kicked = (k) => { this.ui.addChat(`Выдворен с сервера: ${k.reason || 'причина не указана'}.`, '#ff8a8a'); };
+    this.net.on.banned = (b) => { this.ui.addChat(`Аккаунт заблокирован: ${b.reason || 'без причины'}.`, '#ff8a8a'); };
+    const mode = await this.net.connect(charName, gmEmail);
     this.ui.addChat(mode === 'live' ? 'Соединение с миром установлено.' : 'Сервер недоступен — локальная симуляция Заставы активна.', '#8fd18f');
     const ss = $('server-status');
     ss.textContent = mode === 'live' ? 'онлайн' : 'симуляция · оффлайн';

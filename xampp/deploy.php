@@ -96,8 +96,18 @@ function default_config(): array {
         'MAX_PLAYERS_WS' => '200', 'HEARTBEAT_MS' => '30000', 'IDLE_TIMEOUT_MS' => '90000',
         'SAVE_EVERY_S' => '30', 'PUBLIC_MODE' => '0', 'PUBLIC_HOST' => '',
         'ALLOW_REG' => '1', 'LOG_LEVEL' => 'info', 'TOKEN_SECRET' => '',
+        // --- два ГМ-аккаунта (создаются автоматически при развертывании) ---
+        'GM_EMAIL'   => 'gm1@nightforge.local',  'GM_PASS'  => 'Gm!NightCraft1', 'GM_NICK'  => 'Хранитель Зари',
+        'GM2_EMAIL'  => 'gm2@nightforge.local',  'GM2_PASS' => 'Gm!NightCraft2', 'GM2_NICK' => 'Пепельный Вестник',
     ];
 }
+const GM_TABLE = [
+    ['Кто',        'Уровень', 'Полномочия'],
+    ['Владелец сервера',      '9', 'все команды, включая add_gm/del_gm и shutdown'],
+    ['Старший ГМ (GM2)',      '3', 'бан/анбан, опыт игрокам, сообщения в мир, + всё из уровня 2'],
+    ['ГМ',                    '2', 'телепорт, кик, мьют, поиск персонажей, + уровень 1'],
+    ['Модератор (ур.1)',      '1', 'объявления, who/online, поиск — без наказаний'],
+];
 function load_config(string $root): array {
     $cfg = default_config();
     $f = $root . '/server/.env';
@@ -140,6 +150,56 @@ function server_ping(array $cfg): array {
 }
 
 /* ---------------- действия ---------------- */
+// Создание двух ГМ-аккаунтов (пароли — SHA-256(salt:pass), как в ядре сервера)
+function create_gm_accounts(mysqli $link, array $cfg): string {
+    @mysqli_query($link, "CREATE TABLE IF NOT EXISTS gm_accounts (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        account_id INT UNSIGNED NOT NULL UNIQUE,
+        gm_level TINYINT UNSIGNED NOT NULL DEFAULT 1,
+        perms TEXT NULL, note VARCHAR(120) NOT NULL DEFAULT '',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+    @mysqli_query($link, "CREATE TABLE IF NOT EXISTS audit_log (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        gm_email VARCHAR(190) NOT NULL, command VARCHAR(48) NOT NULL,
+        args VARCHAR(500) NOT NULL DEFAULT '', result VARCHAR(255) NOT NULL DEFAULT '',
+        ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_ts(ts))");
+    @mysqli_query($link, "CREATE TABLE IF NOT EXISTS bans (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(190) NOT NULL UNIQUE, reason VARCHAR(200) NOT NULL DEFAULT '',
+        expires_at TIMESTAMP NULL, banned_by VARCHAR(190) NOT NULL DEFAULT 'deploy',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+    $list = [
+        ['email' => $cfg['GM_EMAIL'],  'pass' => $cfg['GM_PASS'],  'nick' => $cfg['GM_NICK'],  'level' => 9],
+        ['email' => $cfg['GM2_EMAIL'], 'pass' => $cfg['GM2_PASS'], 'nick' => $cfg['GM2_NICK'], 'level' => 3],
+    ];
+    $out = [];
+    foreach ($list as $gm) {
+        $email = strtolower(trim($gm['email']));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) { $out[] = "Пропущен некорректный e-mail: '$email'"; continue; }
+        $res = @mysqli_query($link, "SELECT id FROM accounts WHERE email='" . mysqli_real_escape_string($link, $email) . "' LIMIT 1");
+        $accId = null;
+        if ($res && $row = mysqli_fetch_assoc($res)) $accId = (int)$row['id'];
+        if (!$accId) {
+            $salt = bin2hex(random_bytes(8));
+            $hash = hash('sha256', $salt . ':' . $gm['pass']);
+            $st = mysqli_prepare($link, 'INSERT INTO accounts (email, nick, pass_hash, salt) VALUES (?,?,?,?)');
+            if (!$st) { $out[] = "Не удалось создать аккаунт $email: " . mysqli_error($link); continue; }
+            $nick = $gm['nick'] ?: 'ГМ';
+            mysqli_stmt_bind_param($st, 'ssss', $email, $nick, $hash, $salt);
+            if (!mysqli_stmt_execute($st)) { $out[] = "Ошибка вставки $email: " . mysqli_stmt_error($st); mysqli_stmt_close($st); continue; }
+            $accId = mysqli_insert_id($link);
+            mysqli_stmt_close($st);
+        }
+        $perms = json_encode(['level' => $gm['level']], JSON_UNESCAPED_UNICODE);
+        $st2 = mysqli_prepare($link, 'INSERT INTO gm_accounts (account_id, gm_level, perms, note) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE gm_level=VALUES(gm_level), perms=VALUES(perms)');
+        mysqli_stmt_bind_param($st2, 'isss', $accId, $gm['level'], $perms, 'deploy.php');
+        mysqli_stmt_execute($st2); mysqli_stmt_close($st2);
+        $title = $gm['level'] >= 9 ? 'Владелец сервера' : 'Старший ГМ';
+        $out[] = "★ {$email} · ник «{$gm['nick']}» · пароль {$gm['pass']} → $title (ур.${gm['level']})";
+    }
+    return implode("\n", $out);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['act'])) {
     $act = (string)$_POST['act'];
     try {
@@ -180,8 +240,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['act'])) {
                 $st = mysqli_prepare($link, 'INSERT INTO worlds(id,name,seed,pop) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),seed=VALUES(seed),pop=VALUES(pop)');
                 if (!$st) { $er = mysqli_error($link); mysqli_close($link); throw new Exception("Таблицы не созданы: $er"); }
                 foreach ($worlds as $w) { mysqli_stmt_bind_param($st, 'ssis', $w[0], $w[1], $w[2], $w[3]); mysqli_stmt_execute($st); }
-                mysqli_stmt_close($st); mysqli_close($link);
-                flash("БД «{$CFG['DB_NAME']}» развернута: accounts/worlds/characters/chat_log + 4 мира засеяны.");
+                mysqli_stmt_close($st);
+                $gmMsg = create_gm_accounts($link, $CFG);           // ← два ГМ-аккаунта + gm_accounts
+                mysqli_close($link);
+                flash("БД «{$CFG['DB_NAME']}» развернута: accounts/worlds/characters/chat_log/gm_accounts/audit_log/bans + 4 мира засеяны." . ($gmMsg ? "\n" . $gmMsg : ''));
+                break;
+            }
+            case 'create_gm': {                                       // повторное выполнение без пересоздания БД
+                $link = mysql_link($CFG);
+                if (!$link) throw new Exception('MySQL не отвечает — запустите его в XAMPP.');
+                mysqli_set_charset($link, 'utf8mb4');
+                if (!@mysqli_select_db($link, $CFG['DB_NAME'])) { mysqli_close($link); throw new Exception('БД не найдена — сначала разверните базу.'); }
+                @mysqli_query($link, (string)file_get_contents("$ROOT/server/schema.sql"));   // догоняем новые таблицы (IF NOT EXISTS)
+                while (@mysqli_more_results($link) && @mysqli_next_result($link)) {}
+                @mysqli_query($link, "USE `{$CFG['DB_NAME']}`");
+                $gmMsg = create_gm_accounts($link, $CFG);
+                mysqli_close($link);
+                flash($gmMsg ?: 'ГМ уже существуют.');
                 break;
             }
             case 'npm': {

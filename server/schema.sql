@@ -59,6 +59,28 @@ CREATE TABLE IF NOT EXISTS sessions (
   CONSTRAINT fk_sess_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- ГМ-учётные записи (создаются скриптом развертывания deploy.php)
+CREATE TABLE IF NOT EXISTS gm_accounts (
+  id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  account_id INT UNSIGNED NOT NULL UNIQUE,
+  gm_level   TINYINT UNSIGNED NOT NULL DEFAULT 1,        -- 1 модератор · 2 ГМ · 3 старший ГМ · 9 владелец
+  perms      TEXT          NULL,                          -- JSON: ["*"] или список прав
+  note       VARCHAR(120)  NOT NULL DEFAULT '',
+  created_at TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_gm_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Журнал действий ГМ (админ-аудит)
+CREATE TABLE IF NOT EXISTS audit_log (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  gm_email   VARCHAR(190) NOT NULL,
+  command    VARCHAR(48)  NOT NULL,
+  args       VARCHAR(500) NOT NULL DEFAULT '',
+  result     VARCHAR(255) NOT NULL DEFAULT '',
+  ts         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_ts (ts)
+) ENGINE=InnoDB;
+
 -- Стартовые миры (совпадают с WORLDS клиента, src/data/consts.js)
 INSERT INTO worlds (id, name, seed, pop) VALUES
   ('nwm-1', 'Первый Костёр',      20261102, 'высокая'),
