@@ -476,6 +476,83 @@ app.post('/api/character/:world', authTok, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Ошибка сохранения.' }); }
 });
 
+// --------------------------- Контент / энциклопедия (БД-справочники) -------
+// GET /api/content/summary|mobs|items|quests|npcs|instances|locations|factions|classes|abilities|recipes
+const CONTENT_COLS = {
+  mobs:      'id,name,level,hp,dmg_min,dmg_max,xp,family,is_boss,loot_json',
+  items:     'id,name,kind,rarity,price,stats_json,icon',
+  npcs:      'id,name,role,faction,loc,dialog_json,quests_csv',
+  instances: 'id,num,name,theme,base_loc,difficulty,size,level_min,level_max,waves,boss_mob,timer_min,reward_xp,reward_gold,loot_json',
+  locations: 'id,name,anchor_x,anchor_z,radius,biome,description,mob_keys,npc_ids',
+  factions:  'id,name,ideology,color',
+  classes:   'id,name,faction,role,primary_stat,color,descr',
+  abilities: 'id,name,cls,cost_mp,cooldown,descr',
+  recipes:   'id,result,req_level,mats_json,craft_time',
+};
+async function contentRows(table, opts = {}) {
+  const cols = CONTENT_COLS[table]; if (!cols) return null;
+  const where = ["1=1"]; const params = [];
+  if (opts.levelMin != null && table === 'quests') { where.push('quest_lvl >= ?'); params.push(opts.levelMin); }
+  if (opts.levelMax != null && table === 'quests') { where.push('quest_lvl <= ?'); params.push(opts.levelMax); }
+  if (opts.giver)   { where.push('giver = ?');    params.push(opts.giver); }
+  if (opts.loc)     { where.push(table === 'quests' ? 'loc = ?' : 'loc LIKE ?'); params.push(table === 'quests' ? opts.loc : '%' + opts.loc + '%'); }
+  if (opts.q)       { where.push('name LIKE ?');  params.push('%' + opts.q + '%'); }
+  const lim = Math.min(1000, Math.max(1, parseInt(opts.limit || 500, 10)));
+  const off = Math.max(0, parseInt(opts.offset || 0, 10));
+  const sqlCols = table === 'quests'
+    ? 'id,name,quest_lvl AS level,loc,giver,chain,hint,steps_json,reward_json,is_instance'
+    : cols;
+  const sql = `SELECT ${sqlCols} FROM \`${table}\` WHERE ${where.join(' AND ')} ORDER BY ${table === 'quests' ? 'quest_lvl,id' : table === 'instances' ? 'num' : 'id'} LIMIT ${lim} OFFSET ${off}`;
+  let rows;
+  if (pool) { [rows] = await q(sql, params); }
+  else {
+    // NO_DB: читаем из content_export.json (тот же источник, что и сид)
+    try {
+      const j = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'content_export.json'), 'utf8'));
+      let src = j[table] || j[table === 'quests' ? 'allQuests' : table] || [];
+      rows = Array.isArray(src) ? src : Object.values(src);
+      if (opts.q) rows = rows.filter(r => String(r.name || '').toLowerCase().includes(String(opts.q).toLowerCase()));
+      if (opts.loc) rows = rows.filter(r => String(r.loc || r.baseLoc || r.id || '').includes(opts.loc));
+      if (table === 'quests') {
+        if (opts.levelMin != null) rows = rows.filter(r => (r.level || 1) >= opts.levelMin);
+        if (opts.levelMax != null) rows = rows.filter(r => (r.level || 1) <= opts.levelMax);
+        if (opts.giver) rows = rows.filter(r => r.giver === opts.giver);
+      }
+      rows = rows.slice(off, off + lim);
+    } catch (e) { rows = []; }
+  }
+  // единый формат полей для клиента
+  return rows.map(r => {
+    const o = {}; for (const k of Object.keys(r)) o[k] = r[k];
+    for (const key of ['loot_json', 'stats_json', 'dialog_json', 'steps_json', 'reward_json', 'mats_json']) {
+      if (typeof o[key] === 'string') { try { o[key.replace('_json', '')] = JSON.parse(o[key]); } catch (e) {} delete o[key]; }
+    }
+    if (o.loot === undefined && Array.isArray(r.loot)) o.loot = r.loot;
+    return o;
+  });
+}
+app.get('/api/content/:table', async (req, res) => {
+  const t = String(req.params.table || '');
+  if (t === 'summary') {
+    const names = ['factions','classes','locations','mobs','items','npcs','quests','instances','recipes','abilities'];
+    const out = {};
+    for (const n of names) {
+      if (pool) { const [r] = await q(`SELECT COUNT(*) AS c FROM \`${n}\``); out[n] = Number(r[0].c); }
+      else { const rows = await contentRows(n, { limit: 1000 }); out[n] = rows ? rows.length : 0; }
+    }
+    return res.json({ ok: true, counts: out });
+  }
+  if (!CONTENT_COLS[t] && t !== 'quests') return res.status(404).json({ error: 'Неизвестная таблица контента' });
+  const rows = await contentRows(t, {
+    q: req.query.q, loc: req.query.loc, giver: req.query.giver,
+    levelMin: req.query.levelMin != null ? parseInt(req.query.levelMin, 10) : null,
+    levelMax: req.query.levelMax != null ? parseInt(req.query.levelMax, 10) : null,
+    limit: req.query.limit, offset: req.query.offset,
+  });
+  if (rows === null) return res.status(404).json({ error: 'Неизвестная таблица контента' });
+  res.json({ ok: true, table: t, count: rows.length, rows });
+});
+
 // --------------------------- WebSocket MMO --------------------------------
 // протокол совпадает с src/game/net.js PROTO: hello/welcome/spawn/despawn/move/chat/emote
 const server = http.createServer(app);

@@ -142,6 +142,33 @@ $ERROR = null;
 function mysql_link(array $cfg) {
     return @mysqli_connect($cfg['DB_HOST'], $cfg['DB_USER'], $cfg['DB_PASS'], '', (int)$cfg['DB_PORT']);
 }
+// Наполнение справочников (tools/seed_db.php из server/content_export.json) + счётчики таблиц для визуализации
+function seed_reference_data(string $root, array $cfg): array {
+    $seed = "$root/tools/seed_db.php";
+    if (!is_file($seed)) return ['ok' => false, 'error' => 'Не найден tools/seed_db.php'];
+    if (!is_file("$root/server/content_export.json")) return ['ok' => false, 'error' => 'Не найден server/content_export.json (выгрузите контент: node tools/export_content.mjs)'];
+    $php = PHP_BINARY ?: 'php';
+    $cmd = sprintf('%s %s %s %d %s %s %s 2>&1', escapeshellarg($php), escapeshellarg($seed),
+        escapeshellarg($cfg['DB_HOST']), (int)$cfg['DB_PORT'], escapeshellarg($cfg['DB_USER']),
+        escapeshellarg($cfg['DB_PASS']), escapeshellarg($cfg['DB_NAME']));
+    $out = []; $code = 0; exec($cmd, $out, $code);
+    $txt = implode("\n", $out);
+    if ($code !== 0 || strpos($txt, 'SEED OK') === false) return ['ok' => false, 'error' => mb_substr($txt, 0, 400)];
+    // визуализация счётчиков прямо из БД
+    $link = mysql_link($cfg);
+    $summary = trim($txt);
+    if ($link && @mysqli_select_db($link, $cfg['DB_NAME'])) {
+        mysqli_set_charset($link, 'utf8mb4');
+        $cnt = [];
+        foreach (['factions','classes','locations','mobs','items','npcs','recipes','abilities','quests','instances'] as $t) {
+            $r = @mysqli_fetch_row(@mysqli_query($link, "SELECT COUNT(*) FROM `$t`"));
+            if ($r) $cnt[] = "$t=" . (int)$r[0];
+        }
+        mysqli_close($link);
+        if ($cnt) $summary = implode(' · ', $cnt);
+    }
+    return ['ok' => true, 'summary' => $summary];
+}
 function server_ping(array $cfg): array {
     $url = sprintf('http://127.0.0.1:%d/api/ping', (int)$cfg['PORT']);
     $ctx = stream_context_create(['http' => ['timeout' => 3]]);
@@ -244,6 +271,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['act'])) {
                 $gmMsg = create_gm_accounts($link, $CFG);           // ← два ГМ-аккаунта + gm_accounts
                 mysqli_close($link);
                 flash("БД «{$CFG['DB_NAME']}» развернута: accounts/worlds/characters/chat_log/gm_accounts/audit_log/bans + 4 мира засеяны." . ($gmMsg ? "\n" . $gmMsg : ''));
+                // автонаполнение справочников сразу после развертывания
+                $seedRes = seed_reference_data($ROOT, $CFG);
+                if ($seedRes['ok']) flash('Справочники наполнены автоматически → ' . $seedRes['summary'], 'ok');
+                else flash('Развертывание БД выполнено, но наполнение справочников не удалось: ' . $seedRes['error'] . '. Нажмите «Наполнить справочники».', 'warn');
+                break;
+            }
+            case 'seed_db': {                                        // «Наполнить справочники» (ручной запуск/повтор)
+                $link = mysql_link($CFG);
+                if (!$link) throw new Exception('MySQL не отвечает — запустите его в XAMPP.');
+                if (!@mysqli_select_db($link, $CFG['DB_NAME'])) { mysqli_close($link); throw new Exception('БД не найдена — сначала разверните базу.'); }
+                mysqli_close($link);
+                $seedRes = seed_reference_data($ROOT, $CFG);
+                if (!$seedRes['ok']) throw new Exception($seedRes['error']);
+                flash('Наполнение справочников завершено → ' . $seedRes['summary']);
                 break;
             }
             case 'create_gm': {                                       // повторное выполнение без пересоздания БД
@@ -371,6 +412,12 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px 10px;
 </div>
 <div class="btns"><button>💾 Сохранить конфиг</button>
 <button name="act" value="deploy_db">▶ Развернуть базу (schema.sql + миры)</button></div></form>
+<form method="post" class="btns" style="margin-top:6px"><input type="hidden" name="act" value="seed_db">
+<button name="act" value="seed_db">📚 Наполнить справочники (локации, мобы, <?= e((string)@(json_decode(@file_get_contents("$ROOT/server/content_export.json") ?: '{}', true)['allQuests'] ?? [] ? count(json_decode(@file_get_contents("$ROOT/server/content_export.json") ?: '{}', true)['allQuests'] ?? []) : 0)) ?> квестов, инстансы)</button></form>
+<?php if ($MVER && $ROOT): $refCnt = []; foreach (['factions'=>'Фракции','classes'=>'Классы','locations'=>'Локации','mobs'=>'Мобы','items'=>'Предметы','npcs'=>'NPC','quests'=>'Квесты','instances'=>'Инстансы'] as $rt => $rlabel) { $rr = @mysqli_fetch_row(@mysqli_query($MLINK, "SELECT COUNT(*) FROM `$rt`")); $refCnt[$rlabel] = $rr ? (int)$rr[0] : '—'; } ?>
+<table style="margin-top:12px"><tr><th colspan="<?= count($refCnt) ?>">Справочники игры (наполнение из content_export.json)</th></tr>
+<tr><?php foreach ($refCnt as $k => $v): ?><td align="center"><b><?= e((string)$v) ?></b><br><span class="small"><?= e($k) ?></span></td><?php endforeach; ?></tr></table>
+<?php endif; ?>
 <?php if ($WORLDS): ?><table style="margin-top:12px"><tr><th>Мир</th><th>ID</th><th>Популяция</th><th>Персонажей</th></tr>
 <?php foreach ($WORLDS as $w): ?><tr><td><?=e($w['name'])?></td><td><code><?=e($w['id'])?></code></td><td><?=e($w['pop'])?></td><td><?=e((string)$w['chars'])?></td></tr><?php endforeach; ?></table>
 <?php elseif ($MVER && $ROOT): ?><p class="small">БД ещё не развернута — нажмите «Развернуть базу».</p><?php endif; ?>
